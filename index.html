@@ -1,0 +1,364 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>使い切りしりとり</title>
+<meta name="description" content="使った文字は二度と使えない。50音を使い切るしりとり。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 64 64%27%3E%3Crect width=%2764%27 height=%2764%27 rx=%2714%27 fill=%27%23d4452f%27/%3E%3Ctext x=%2732%27 y=%2746%27 font-size=%2738%27 text-anchor=%27middle%27 fill=%27white%27 font-family=%27sans-serif%27 font-weight=%27700%27%3Eり%3C/text%3E%3C/svg%3E">
+<meta name="theme-color" content="#f4f1ea" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#14151a" media="(prefers-color-scheme: dark)">
+<style>
+:root {
+  color-scheme: light dark;
+  --bg: #f4f1ea; --card: #fffdf8; --ink: #1f1d1a; --sub: #7a756b; --line: #ddd7c9;
+  --accent: #d4452f; --accent-ink: #fff; --used: #e6e1d3; --base: #d7d2c3; --ok: #2f8f4e;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #14151a; --card: #1c1d23; --ink: #ecebe6; --sub: #9a978f; --line: #2d2f37;
+    --accent: #ff7058; --accent-ink: #1a0a07; --used: #2a2c34; --base: #34363f; --ok: #4cc27a; }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink);
+  font: 16px/1.6 system-ui, -apple-system, "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", sans-serif;
+  padding: env(safe-area-inset-top) max(16px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(16px, env(safe-area-inset-left)); }
+.wrap { max-width: 480px; margin: 0 auto; padding: 18px 0 48px; }
+h1 { margin: 0; font-size: 20px; letter-spacing: .04em; }
+.top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 12px; }
+.top small { color: var(--sub); }
+
+.prompt { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 14px 16px; text-align: center; }
+.prompt .lab { margin: 0; font-size: 12px; color: var(--sub); letter-spacing: .1em; }
+.prompt .w { margin: 2px 0 0; font-size: 30px; font-weight: 800; letter-spacing: .12em; line-height: 1.3; }
+.prompt .go { margin: 0; font-size: 15px; }
+.prompt .go b { color: var(--accent); font-size: 22px; }
+.prompt .ref { margin: 4px 0 0; font-size: 12px; color: var(--sub); }
+
+.tabs { display: flex; gap: 8px; margin: 14px 0 12px; }
+.tabs button { flex: 1; min-height: 44px; border: 1px solid var(--line); background: var(--card); color: var(--ink);
+  border-radius: 12px; font: inherit; font-size: 14px; font-weight: 600; cursor: pointer; }
+.tabs button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+.board { display: grid; grid-template-columns: repeat(10, 1fr); gap: 4px; margin: 0 0 10px; }
+.cell { aspect-ratio: 1; display: grid; place-items: center; border-radius: 8px; font-size: clamp(14px, 4.4vw, 20px); font-weight: 600;
+  background: var(--card); border: 1px solid var(--line); transition: background .25s, color .25s, transform .25s; }
+.cell.empty { visibility: hidden; }
+.cell.base { background: var(--base); color: var(--sub); border-color: transparent; }
+.cell.used { background: var(--used); color: var(--sub); border-color: transparent; text-decoration: line-through; opacity: .7; }
+.cell.next { outline: 3px solid var(--accent); outline-offset: 1px; color: var(--accent); }
+.cell.flash { animation: pop .5s; }
+@keyframes pop { 30% { transform: scale(1.25); background: var(--accent); color: var(--accent-ink); } }
+
+.stat { display: flex; justify-content: space-between; align-items: baseline; margin: 0 2px 8px; color: var(--sub); font-size: 14px; }
+.stat b { color: var(--ink); font-size: 22px; }
+.chain { margin: 0 0 12px; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
+.chain li { padding: 2px 10px; background: var(--card); border: 1px solid var(--line); border-radius: 999px; font-size: 15px; }
+.chain li i { font-style: normal; color: var(--sub); }
+.chain li.first { background: var(--base); border-color: transparent; }
+
+form { display: flex; gap: 8px; }
+input[type="text"] { flex: 1; min-width: 0; height: 52px; padding: 0 14px; font-size: 18px; font-family: inherit; color: var(--ink);
+  background: var(--card); border: 2px solid var(--line); border-radius: 12px; }
+input[type="text"]:focus { outline: none; border-color: var(--accent); }
+.btn { min-height: 52px; padding: 0 20px; font-size: 16px; font-weight: 700; font-family: inherit; color: var(--accent-ink); background: var(--accent);
+  border: 0; border-radius: 12px; cursor: pointer; }
+.btn.ghost { min-height: 44px; color: var(--ink); background: transparent; border: 1px solid var(--line); font-weight: 500; font-size: 14px; padding: 0 14px; }
+.btn:disabled { opacity: .45; cursor: default; }
+.msg { min-height: 1.6em; margin: 8px 2px 0; font-size: 14px; color: var(--accent); }
+.msg.ok { color: var(--ok); }
+.shake { animation: shake .35s; }
+@keyframes shake { 20% { transform: translateX(-6px); } 40% { transform: translateX(6px); } 60% { transform: translateX(-4px); } 80% { transform: translateX(4px); } }
+.ctrl { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+
+.result { margin-top: 16px; padding: 16px; background: var(--card); border: 2px solid var(--ok); border-radius: 16px; }
+.result h2 { margin: 0 0 4px; font-size: 20px; }
+.result pre { white-space: pre-wrap; margin: 10px 0; padding: 10px 12px; background: var(--bg); border-radius: 10px; font: inherit; font-size: 14px; }
+details { margin-top: 18px; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 10px 14px; font-size: 14px; }
+summary { cursor: pointer; font-weight: 600; min-height: 28px; }
+details ul { margin: 8px 0 0; padding-left: 1.2em; }
+details li { margin-bottom: 4px; }
+.set { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
+select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; }
+.loading { text-align: center; color: var(--sub); padding: 40px 0; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><h1>使い切りしりとり</h1><small id="date"></small></div>
+  <div id="app"><p class="loading">辞書を読み込んでいます…</p></div>
+</div>
+<script>
+(async () => {
+  'use strict';
+  const $ = s => document.querySelector(s);
+  const app = $('#app');
+
+  // ---- 文字の決まり ----
+  const KANA = 'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわん';
+  const IDX = {}; [...KANA].forEach((c, i) => { IDX[c] = i; });
+  const N = IDX['ん'];
+  const NORM = {};
+  [...'がぎぐげござじずぜぞだぢづでどばびぶべぼ'].forEach((c, i) => { NORM[c] = 'かきくけこさしすせそたちつてとはひふへほ'[i]; });
+  [...'ぱぴぷぺぽ'].forEach((c, i) => { NORM[c] = 'はひふへほ'[i]; });
+  [...'ぁぃぅぇぉっゃゅょゎゔ'].forEach((c, i) => { NORM[c] = 'あいうえおつやゆよわう'[i]; });
+  const VOWEL = {};
+  [['あかさたなはまやらわ', 'あ'], ['いきしちにひみり', 'い'], ['うくすつぬふむゆる', 'う'], ['えけせてねへめれ', 'え'], ['おこそとのほもよろ', 'お']]
+    .forEach(([row, v]) => [...row].forEach(c => { VOWEL[c] = v; }));
+  const LAYOUT = ['あかさたなはまやらわ', 'いきしちにひみ　り　', 'うくすつぬふむゆる　', 'えけせてねへめ　れ　', 'おこそとのほもよろん'];
+  const TOTAL = KANA.length; // 45
+
+  const toHira = s => s.normalize('NFKC').replace(/[\s　]/g, '').replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
+  const bit = i => (i < 30 ? [1 << i, 0] : [0, 1 << (i - 30)]);
+
+  // 単語の分析。エラーは { err: 'コード', ch? }
+  function analyze(r) {
+    if (!/^[ぁ-ゖー]+$/.test(r)) return { err: 'nonkana' };
+    if (r.length < 3) return { err: 'short' };
+    if (r[0] === 'ー') return { err: 'nonkana' };
+    const units = [];
+    for (const ch of r) {
+      if (ch === 'ー') { units.push('ー'); continue; }
+      const n = NORM[ch] || ch;
+      if (n === 'を') return { err: 'wo' };
+      if (!(n in IDX)) return { err: 'nonkana' };
+      units.push(n);
+    }
+    const start = units[0];
+    const cons = units.slice(1).filter(u => u !== 'ー');
+    let end;
+    if (units[units.length - 1] === 'ー') {
+      const prev = units.filter(u => u !== 'ー').pop();
+      if (!(prev in VOWEL)) return { err: 'longn' };
+      end = VOWEL[prev];
+    } else end = units[units.length - 1];
+    return { start, cons, end };
+  }
+
+  // ---- データ読み込み ----
+  const [promptsRes, wordsRes] = await Promise.all([fetch('data/prompts.json'), fetch('data/words.txt')]);
+  const PROMPTS = await promptsRes.json();
+  const lines = (await wordsRes.text()).split('\n');
+  const dict = new Map();           // 読み -> 種別
+  const sA = [], loA = [], hiA = [], eA = [], tA = [], cA = []; // 続けられる手の探索用
+  for (const line of lines) {
+    const k = line.indexOf('\t'); if (k < 0) continue;
+    const r = line.slice(0, k), t = +line.slice(k + 1);
+    dict.set(r, t);
+    const a = analyze(r); if (a.err) continue;
+    let lo = 0, hi = 0;
+    for (const c of a.cons) { const [l, h] = bit(IDX[c]); lo |= l; hi |= h; }
+    sA.push(IDX[a.start]); loA.push(lo); hiA.push(hi); eA.push(IDX[a.end]); tA.push(t); cA.push(a.cons.length);
+  }
+
+  // ---- 設定・保存 ----
+  const store = {
+    get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* 保存できなくても遊べる */ } },
+  };
+  const jstDay = () => Math.floor((Date.now() + 9 * 3600e3) / 86400e3);
+  const DAY0 = Math.floor(Date.UTC(2026, 0, 1) / 86400e3);
+  const settings = Object.assign({ dict: 'c', offset: 0, mode: 2 }, store.get('su1:settings') || {});
+  const q = new URLSearchParams(location.search);
+  if (q.has('p')) settings.offset = +q.get('p') - ((jstDay() - DAY0) % PROMPTS.length);
+  const saveSettings = () => store.set('su1:settings', settings);
+  const maxTag = () => ({ a: 0, b: 2, c: 3 }[settings.dict]);
+
+  let st; // 現在の盤面
+  const pIndex = () => (((jstDay() - DAY0 + settings.offset) % PROMPTS.length) + PROMPTS.length) % PROMPTS.length;
+  const saveKey = () => `su1:${PROMPTS[st.pi].word}:${st.mode}`;
+
+  function newState() {
+    const pi = pIndex(), p = PROMPTS[pi];
+    const used = new Array(TOTAL).fill(0); // 0 空き, 1 お題, 2 プレイヤー
+    for (const ch of p.word) used[IDX[NORM[ch] || ch]] = 1;
+    return { pi, mode: settings.mode, used, link: p.link, chain: [], done: false, msg: '', msgOk: false };
+  }
+  function applyWord(r) { // 検証済みの単語を盤面に反映
+    const a = analyze(r);
+    for (const c of a.cons) st.used[IDX[c]] = 2;
+    st.chain.push(r); st.link = a.end;
+    return a;
+  }
+  function restore() {
+    st = newState();
+    const saved = store.get(saveKey());
+    if (saved) {
+      for (const r of saved.chain || []) { if (!analyze(r).err) applyWord(r); }
+      st.done = !!saved.done; st.result = saved.result;
+    }
+  }
+  const persist = () => store.set(saveKey(), { chain: st.chain, done: st.done, result: st.result });
+  const left = () => st.used.filter(v => v === 0).length;
+
+  // 続けられる手があるか
+  function hasMove() {
+    let remLo = 0, remHi = 0;
+    st.used.forEach((v, i) => { if (v === 0) { const [l, h] = bit(i); remLo |= l; remHi |= h; } });
+    const link = IDX[st.link], lim = maxTag(), remAll = left();
+    for (let i = 0; i < sA.length; i++) {
+      if (sA[i] !== link || tA[i] > lim) continue;
+      if ((loA[i] & ~remLo) || (hiA[i] & ~remHi)) continue;
+      if (eA[i] === N && st.mode === 2 && cA[i] !== remAll) continue;
+      return true;
+    }
+    return false;
+  }
+
+  // ---- 入力の検証と反映 ----
+  const MSG = {
+    nonkana: 'ひらがな(カタカナ)で入力してください。',
+    short: '3文字以上の言葉にしてください。',
+    wo: '「を」は使えません。',
+    longn: '「ん」のあとの長音は使えません。',
+  };
+  function submit(raw) {
+    const r = toHira(raw);
+    if (!r) return fail('');
+    const a = analyze(r);
+    if (a.err) return fail(MSG[a.err]);
+    if (a.start !== st.link) return fail(`「${st.link}」から始めてください。`);
+    const seen = new Set();
+    for (const c of a.cons) {
+      if (seen.has(c)) return fail(`「${c}」が2回出てきます。同じ言葉の中でも、同じ文字は1回までです。`);
+      seen.add(c);
+      if (st.used[IDX[c]]) return fail(`「${c}」はもう使われています。`);
+    }
+    const t = dict.get(r);
+    if (t === undefined || t > maxTag()) return fail('辞書にない言葉です。');
+    const after = TOTAL - st.used.filter(v => v).length - a.cons.length;
+    if (a.end === 'ん' && after > 0 && st.mode === 2) return fail('「ん」で終わると続けられません。使い切るときの最後だけ使えます。');
+    applyWord(r);
+    st.flash = a.cons.map(c => IDX[c]);
+    st.msg = ''; st.msgOk = false;
+    if (left() === 0) finish('clear');
+    else if (a.end === 'ん') finish('end');
+    else if (!hasMove()) {
+      if (st.mode === 1) finish('stuck');
+      else { st.msg = 'ここから続けられる言葉がありません。「1つ戻す」で別の言葉を試してください。'; }
+    }
+    persist(); render();
+    return true;
+  }
+  function fail(m) { st.msg = m; st.msgOk = false; render(true); return false; }
+  function finish(why) {
+    st.done = true;
+    const n = st.chain.length, rest = left();
+    st.result = { why, n, rest };
+  }
+  function undo() {
+    if (!st.chain.length) return;
+    const keep = st.chain.slice(0, -1), pi = st.pi, mode = st.mode;
+    store.set(saveKey(), { chain: keep, done: false });
+    restore(); render();
+  }
+  function reset() {
+    if (st.chain.length && !confirm('はじめからやり直しますか？')) return;
+    store.set(saveKey(), { chain: [], done: false }); restore(); render();
+  }
+
+  // ---- 描画 ----
+  const dateLabel = () => { const d = new Date(Date.now() + 9 * 3600e3); return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`; };
+  function shareText() {
+    const p = PROMPTS[st.pi], r = st.result;
+    const head = `使い切りしりとり ${dateLabel()}\nお題「${p.word}」→「${p.link}」`;
+    const body = st.mode === 2
+      ? (r.why === 'clear' ? `② 最少手数: ${r.n}語で使い切り!` : `② 最少手数: 使い切れず…(残り${r.rest}字)`)
+      : `① 節約: ${r.n}語つなげた(残り${r.rest}字)`;
+    return `${head}\n${body}\n${location.origin}${location.pathname}`;
+  }
+
+  function render(shake) {
+    const p = PROMPTS[st.pi];
+    const cells = LAYOUT.map(row => [...row].map(ch => {
+      if (ch === '　') return '<div class="cell empty"></div>';
+      const i = IDX[ch], v = st.used[i];
+      const cls = ['cell', v === 1 ? 'base' : v === 2 ? 'used' : '', (!st.done && ch === st.link) ? 'next' : '', st.flash && st.flash.includes(i) ? 'flash' : ''].join(' ');
+      return `<div class="${cls}">${ch}</div>`;
+    }).join('')).join('');
+    const chain = `<ul class="chain" aria-label="つないだ言葉"><li class="first">${p.word}</li>` +
+      st.chain.map(r => `<li><i>${r[0]}</i>${r.slice(1)}</li>`).join('') + '</ul>';
+    const mode1 = st.mode === 1;
+    let result = '';
+    if (st.done) {
+      const r = st.result;
+      const head = r.why === 'clear' ? '使い切り!' : mode1 ? 'ここまで!' : '終了';
+      const sub = st.mode === 2
+        ? (r.why === 'clear' ? `${r.n}語で、すべての文字を使い切りました。` : `使い切れませんでした(残り${r.rest}字)。`)
+        : `${r.n}語つなげました(残り${r.rest}字)。`;
+      result = `<section class="result"><h2>${head}</h2><p style="margin:0">${sub}</p><pre id="share"></pre>
+        <div class="ctrl"><button class="btn" id="shareBtn" type="button">結果を共有</button><button class="btn ghost" id="again" type="button">もう一度</button></div>
+        <p class="msg ok" id="smsg" role="status"></p></section>`;
+    }
+    app.innerHTML = `
+      <section class="prompt">
+        <p class="lab">今日のお題 ・ この言葉の文字は、最初から使えません</p>
+        <p class="w">${p.word}</p>
+        <p class="go">最初は「<b>${p.link}</b>」から始めます</p>
+        <p class="ref">参考: ソルバーは ${p.ref} 語で使い切りを確認</p>
+      </section>
+      <div class="tabs" role="group" aria-label="部門">
+        <button type="button" data-m="1" aria-pressed="${mode1}">① 節約<br><small>できるだけ多くつなぐ</small></button>
+        <button type="button" data-m="2" aria-pressed="${!mode1}">② 最少手数<br><small>少ない語数で使い切る</small></button>
+      </div>
+      <div class="board" aria-label="50音表">${cells}</div>
+      <div class="stat"><span><b>${st.chain.length}</b> 語</span><span>残り <b>${left()}</b> 字</span></div>
+      ${chain}
+      ${st.done ? '' : `<form id="f" autocomplete="off">
+        <label class="sr" for="w" style="position:absolute;left:-9999px">言葉</label>
+        <input id="w" type="text" lang="ja" enterkeyhint="send" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="「${st.link}」から始まる言葉">
+        <button class="btn" type="submit">出す</button></form>`}
+      <p class="msg ${st.msgOk ? 'ok' : ''}" id="msg" role="status" aria-live="polite">${st.msg || ''}</p>
+      <div class="ctrl">
+        <button class="btn ghost" id="undo" type="button" ${st.chain.length ? '' : 'disabled'}>1つ戻す</button>
+        <button class="btn ghost" id="reset" type="button">はじめから</button>
+        ${mode1 && !st.done && st.chain.length ? '<button class="btn ghost" id="stop" type="button">ここで終わる</button>' : ''}
+      </div>
+      ${result}
+      <details><summary>遊び方</summary><ul>
+        <li>お題の言葉の文字は、最初から消えています。「<b>${p.link}</b>」から始まる言葉を出してしりとりをつなぎます。</li>
+        <li>言葉の<b>2文字目以降</b>が消えます。使った文字は、二度と使えません(同じ言葉の中でも1回まで)。</li>
+        <li>3文字以上の言葉だけ使えます。固有名詞も辞書にあれば使えます。「を」は使えません。</li>
+        <li>濁音・半濁音は清音、小さい字は大きい字と同じ文字として数えます(「が」は「か」、「っ」は「つ」)。長音「ー」は消えず、次は直前の文字の母音から始めます。</li>
+        <li>「ん」で終わると続けられません。②では、使い切る最後の1語だけ「ん」で終われます。</li>
+        <li>① 節約: 詰むまで、できるだけ多くの言葉をつなぐ。 ② 最少手数: 少ない語数で全部の文字を使い切る。</li></ul></details>
+      <details><summary>試作用の設定</summary>
+        <div class="set"><label for="dsel">辞書の範囲</label>
+          <select id="dsel"><option value="a">普通名詞のみ</option><option value="b">+地名・固有名詞</option><option value="c">すべて(人名も)</option></select></div>
+        <div class="set"><button class="btn ghost" id="prev" type="button">← 前のお題</button><button class="btn ghost" id="next" type="button">次のお題 →</button>
+          <span style="color:var(--sub)">${st.pi + 1}/${PROMPTS.length}</span></div>
+      </details>`;
+    st.flash = null;
+    $('#dsel').value = settings.dict;
+    if (shake) { const m = $('#msg'); m.classList.remove('shake'); void m.offsetWidth; m.classList.add('shake'); const f = $('#f'); if (f) { f.classList.add('shake'); } }
+    const f = $('#f');
+    if (f) {
+      f.onsubmit = e => { e.preventDefault(); const inp = $('#w'); const v = inp.value; if (submit(v)) { const n = $('#w'); if (n) n.focus(); } else { const n = $('#w'); if (n) { n.value = v; n.focus(); } } };
+    }
+    document.querySelectorAll('.tabs button').forEach(b => { b.onclick = () => { settings.mode = +b.dataset.m; saveSettings(); restore(); render(); }; });
+    $('#undo').onclick = undo; $('#reset').onclick = reset;
+    const stop = $('#stop'); if (stop) stop.onclick = () => { finish('end'); persist(); render(); };
+    $('#dsel').onchange = e => { settings.dict = e.target.value; saveSettings(); st.msg = ''; render(); };
+    const go = d => { settings.offset += d; saveSettings(); restore(); render(); };
+    $('#prev').onclick = () => go(-1); $('#next').onclick = () => go(1);
+    if (st.done) {
+      $('#share').textContent = shareText();
+      $('#again').onclick = () => { store.set(saveKey(), { chain: [], done: false }); restore(); render(); };
+      $('#shareBtn').onclick = async () => {
+        const text = shareText();
+        try {
+          if (navigator.share) await navigator.share({ text });
+          else { await navigator.clipboard.writeText(text); $('#smsg').textContent = 'コピーしました。'; }
+        } catch (e) { if (!e || e.name !== 'AbortError') $('#smsg').textContent = '共有できませんでした。上の文章をコピーしてください。'; }
+      };
+    }
+  }
+
+  $('#date').textContent = dateLabel();
+  restore(); render();
+  window.__su = { get st() { return st; }, PROMPTS, settings }; // 検証用
+})();
+</script>
+</body>
+</html>
