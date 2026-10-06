@@ -56,17 +56,33 @@ async function inDict(salt, reading) {
 }
 
 // ---- お題 ----
-const DAY0 = Math.floor(Date.UTC(2026, 0, 1) / 86400e3);
+// ---- 日ごとのお題 ----
+// 2026-10-06(JST の日数 20732)だけ、末尾の特別なお題。翌日からは、日ごとに決まる乱数で選ぶ(全員同じ。同じお題が続かない)
+const SPECIAL_DAY = 20732;
+function mulberry32(a) { return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+function orderOf(cycle, m) {
+  const o = [...Array(m).keys()], r = mulberry32(cycle * 7919 + 12345);
+  for (let i = m - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [o[i], o[j]] = [o[j], o[i]]; }
+  if (cycle > 0 && o[0] === orderOf(cycle - 1, m)[m - 1]) [o[0], o[1]] = [o[1], o[0]];
+  return o;
+}
+function idxForDay(day, n) {
+  const m = n - 1; // 末尾は特別なお題。ふだんのお題は、それ以外
+  if (day === SPECIAL_DAY) return n - 1;
+  if (day < SPECIAL_DAY) return (((day - Math.floor(Date.UTC(2026, 0, 1) / 86400e3)) % m) + m) % m;
+  const k = day - (SPECIAL_DAY + 1);
+  return orderOf(Math.floor(k / m), m)[k % m];
+}
 const jstDay = () => Math.floor((Date.now() + 9 * 3600e3) / 86400e3);
 function today() {
   const day = jstDay();
-  return { day, p: prompts[(((day - DAY0) % prompts.length) + prompts.length) % prompts.length] };
+  return { day, p: prompts[idxForDay(day, prompts.length)] };
 }
 
 // ---- 検証 ----
 async function validate(env, p, mode, chain) {
   if (!Array.isArray(chain) || chain.length < 1 || chain.length > TOTAL) return 'chain';
-  const used = new Set([...p.word].map(c => NORM[c] || c));
+  const used = new Set([...p.word].map(c => NORM[c] || c).filter(c => c in IDX)); // 長音は消える文字ではない
   let link = p.link;
   for (let i = 0; i < chain.length; i++) {
     if (typeof chain[i] !== 'string' || chain[i].length > 40) return 'word';
@@ -103,18 +119,18 @@ const cleanName = s => String(s || '').normalize('NFKC').replace(/[\u0000-\u001f
 const DEVICE_RE = /^[A-Za-z0-9-]{8,64}$/;
 
 async function ranking(env, day, p, mode, device) {
-  const total = (await env.DB.prepare('SELECT COUNT(*) AS c FROM scores WHERE day = ? AND mode = ?').bind(day, mode).first()).c;
+  const total = (await env.DB.prepare('SELECT COUNT(*) AS c FROM scores WHERE day = ? AND prompt = ? AND mode = ?').bind(day, p.word, mode).first()).c;
   let top = [];
   if (mode === 1) {
-    const { results } = await env.DB.prepare('SELECT name, n, device FROM scores WHERE day = ? AND mode = 1 ORDER BY n DESC, created ASC LIMIT 10').bind(day).all();
+    const { results } = await env.DB.prepare('SELECT name, n, device FROM scores WHERE day = ? AND prompt = ? AND mode = 1 ORDER BY n DESC, created ASC LIMIT 10').bind(day, p.word).all();
     let rank = 0, prev = null;
     top = results.map((r, i) => { if (r.n !== prev) { rank = i + 1; prev = r.n; } return { rank, name: r.name, n: r.n, mine: !!device && r.device === device }; });
   }
   let me = null;
   if (device) {
-    const row = await env.DB.prepare('SELECT name, n FROM scores WHERE day = ? AND mode = ? AND device = ?').bind(day, mode, device).first();
+    const row = await env.DB.prepare('SELECT name, n FROM scores WHERE day = ? AND prompt = ? AND mode = ? AND device = ?').bind(day, p.word, mode, device).first();
     if (row) {
-      const rank = mode === 1 ? 1 + (await env.DB.prepare('SELECT COUNT(*) AS c FROM scores WHERE day = ? AND mode = 1 AND n > ?').bind(day, row.n).first()).c : null;
+      const rank = mode === 1 ? 1 + (await env.DB.prepare('SELECT COUNT(*) AS c FROM scores WHERE day = ? AND prompt = ? AND mode = 1 AND n > ?').bind(day, p.word, row.n).first()).c : null;
       me = { name: row.name, n: row.n, rank };
     }
   }
@@ -146,12 +162,12 @@ export default {
         if (bad) return json({ error: 'invalid', detail: bad }, 422, cors);
         const n = b.chain.length, name = cleanName(b.name), now = Date.now();
         await env.DB.prepare(
-          `INSERT INTO scores (day, mode, device, name, n, chain, created) VALUES (?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT (day, mode, device) DO UPDATE SET name = excluded.name,
+          `INSERT INTO scores (day, prompt, mode, device, name, n, chain, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT (day, prompt, mode, device) DO UPDATE SET name = excluded.name,
              n = CASE WHEN excluded.n > scores.n THEN excluded.n ELSE scores.n END,
              chain = CASE WHEN excluded.n > scores.n THEN excluded.chain ELSE scores.chain END,
              created = CASE WHEN excluded.n > scores.n THEN excluded.created ELSE scores.created END`
-        ).bind(day, mode, b.device, name, n, JSON.stringify(b.chain), now).run();
+        ).bind(day, p.word, mode, b.device, name, n, JSON.stringify(b.chain), now).run();
         return json({ ok: true, ...(await ranking(env, day, p, mode, b.device)) }, 200, cors);
       }
 
@@ -159,7 +175,7 @@ export default {
         if (!env.ADMIN_TOKEN || req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403, cors);
         if (url.pathname === '/api/v1/admin/list') {
           const d = +(url.searchParams.get('day') || day);
-          const { results } = await env.DB.prepare('SELECT day, mode, device, name, n, chain, created FROM scores WHERE day = ? ORDER BY mode, n DESC, created').bind(d).all();
+          const { results } = await env.DB.prepare('SELECT day, prompt, mode, device, name, n, chain, created FROM scores WHERE day = ? ORDER BY prompt, mode, n DESC, created').bind(d).all();
           return json({ day: d, rows: results }, 200, cors);
         }
         if (url.pathname === '/api/v1/admin/delete' && req.method === 'POST') {
