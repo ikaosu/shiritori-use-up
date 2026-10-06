@@ -57,8 +57,7 @@ async function inDict(salt, reading) {
 
 // ---- お題 ----
 // ---- 日ごとのお題 ----
-// 2026-10-06(JST の日数 20732)だけ、末尾の特別なお題。翌日からは、日ごとに決まる乱数で選ぶ(全員同じ。同じお題が続かない)
-const SPECIAL_DAY = 20732;
+// お題に day(JST の日数)があれば、その日だけのお題。ない日は、日ごとに決まる乱数で選ぶ(全員同じ。同じお題が続かない)
 function mulberry32(a) { return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 function orderOf(cycle, m) {
   const o = [...Array(m).keys()], r = mulberry32(cycle * 7919 + 12345);
@@ -66,26 +65,29 @@ function orderOf(cycle, m) {
   if (cycle > 0 && o[0] === orderOf(cycle - 1, m)[m - 1]) [o[0], o[1]] = [o[1], o[0]];
   return o;
 }
-function idxForDay(day, n) {
-  const m = n - 1; // 末尾は特別なお題。ふだんのお題は、それ以外
-  if (day === SPECIAL_DAY) return n - 1;
-  if (day < SPECIAL_DAY) return (((day - Math.floor(Date.UTC(2026, 0, 1) / 86400e3)) % m) + m) % m;
-  const k = day - (SPECIAL_DAY + 1);
-  return orderOf(Math.floor(k / m), m)[k % m];
+function idxForDay(day, list) {
+  const fixed = list.findIndex(p => p.day === day);
+  if (fixed >= 0) return fixed;
+  const pool = list.map((p, i) => i).filter(i => list[i].day === undefined), m = pool.length;
+  const START = 20733; // この日から、乱数で選ぶ(それより前は、順番どおり)
+  if (day < START) return pool[(((day - Math.floor(Date.UTC(2026, 0, 1) / 86400e3)) % m) + m) % m];
+  const k = day - START;
+  return pool[orderOf(Math.floor(k / m), m)[k % m]];
 }
 const jstDay = () => Math.floor((Date.now() + 9 * 3600e3) / 86400e3);
-function today() {
-  const day = jstDay();
-  return { day, p: prompts[idxForDay(day, prompts.length)] };
+function today(env) {
+  const day = env && env.DAY_OVERRIDE ? +env.DAY_OVERRIDE : jstDay(); // DAY_OVERRIDE は、手元の試験用(本番には設定しない)
+  return { day, p: prompts[idxForDay(day, prompts)] };
 }
 
 // ---- 検証 ----
 // 節約の理論値: 1語で消える文字は最低2つなので、お題で残る文字の半分が最大の語数
-const maxWordsOf = p => Math.floor((TOTAL - new Set([...p.word].map(c => NORM[c] || c).filter(c => c in IDX)).size) / 2);
+const sealedOf = p => new Set([...p.word + (p.seal || '')].map(c => NORM[c] || c).filter(c => c in IDX));
+const maxWordsOf = p => Math.floor((TOTAL - sealedOf(p).size) / 2);
 
 async function validate(env, p, mode, chain, out) {
   if (!Array.isArray(chain) || chain.length < 1 || chain.length > TOTAL) return 'chain';
-  const used = new Set([...p.word].map(c => NORM[c] || c).filter(c => c in IDX)); // 長音は消える文字ではない
+  const used = sealedOf(p); // お題の文字と、封じる文字。長音は消える文字ではない
   let link = p.link;
   for (let i = 0; i < chain.length; i++) {
     if (typeof chain[i] !== 'string' || chain[i].length > 40) return 'word';
@@ -153,7 +155,7 @@ export default {
     const cors = corsHeaders(req.headers.get('Origin') || '');
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     try {
-      const { day, p } = today();
+      const { day, p } = today(env);
       if (url.pathname === '/api/v1/health') return json({ ok: true, day, prompt: p.word }, 200, cors);
 
       if (url.pathname === '/api/v1/ranking' && req.method === 'GET') {
@@ -162,7 +164,7 @@ export default {
         // day を指定すると、過去の日のランキング(その日の公式のお題)を返す
         let d = Math.floor(+url.searchParams.get('day') || day);
         if (!(d >= day - 400 && d <= day)) d = day;
-        const pp = d === day ? p : prompts[idxForDay(d, prompts.length)];
+        const pp = d === day ? p : prompts[idxForDay(d, prompts)];
         return json(await ranking(env, d, pp, mode, DEVICE_RE.test(device) ? device : ''), 200, cors);
       }
 

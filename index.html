@@ -247,6 +247,8 @@ i.theory { display: inline-block; margin-left: 4px; padding: 0 8px; font-style: 
 .hist li:last-child { border-bottom: 0; } .hist li:active { background: rgba(200,64,42,.1); }
 .hist .hd { font: 800 14px/1.2 var(--serif); color: var(--sub); }
 .hist .hn small, .hist .hs small { display: block; font-size: 11px; color: var(--sub); } .hist .hs { text-align: right; font: 800 15px/1.3 var(--serif); }
+
+.prompt .pnote { margin: 8px 6px 0; font-size: 13px; line-height: 1.6; color: #f3dca0; text-align: center; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
 /* ===== 画面: タイトル → ゲーム → 結果 ===== */
@@ -416,8 +418,7 @@ body { padding-top: env(safe-area-inset-top); }
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* 保存できなくても遊べる */ } },
   };
   // ---- 日ごとのお題 ----
-  // 2026-10-06(JST の日数 20732)だけ、末尾の特別なお題。翌日からは、日ごとに決まる乱数で選ぶ(全員同じ。同じお題が続かない)
-  const SPECIAL_DAY = 20732;
+  // お題に day(JST の日数)があれば、その日だけのお題。ない日は、日ごとに決まる乱数で選ぶ(全員同じ。同じお題が続かない)
   function mulberry32(a) { return () => { a |= 0; a = (a + 0x6D2B79F5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
   function orderOf(cycle, m) {
     const o = [...Array(m).keys()], r = mulberry32(cycle * 7919 + 12345);
@@ -425,18 +426,21 @@ body { padding-top: env(safe-area-inset-top); }
     if (cycle > 0 && o[0] === orderOf(cycle - 1, m)[m - 1]) [o[0], o[1]] = [o[1], o[0]];
     return o;
   }
-  function idxForDay(day, n) {
-    const m = n - 1; // 末尾は特別なお題。ふだんのお題は、それ以外
-    if (day === SPECIAL_DAY) return n - 1;
-    if (day < SPECIAL_DAY) return (((day - Math.floor(Date.UTC(2026, 0, 1) / 86400e3)) % m) + m) % m;
-    const k = day - (SPECIAL_DAY + 1);
-    return orderOf(Math.floor(k / m), m)[k % m];
+  function idxForDay(day, list) {
+    const fixed = list.findIndex(p => p.day === day);
+    if (fixed >= 0) return fixed;
+    const pool = list.map((p, i) => i).filter(i => list[i].day === undefined), m = pool.length;
+    const START = 20733; // この日から、乱数で選ぶ(それより前は、順番どおり)
+    if (day < START) return pool[(((day - Math.floor(Date.UTC(2026, 0, 1) / 86400e3)) % m) + m) % m];
+    const k = day - START;
+    return pool[orderOf(Math.floor(k / m), m)[k % m]];
   }
-  const jstDay = () => Math.floor((Date.now() + 9 * 3600e3) / 86400e3);
+  const dayQ = (new URLSearchParams(location.search).get('api') || '').match(/^http:\/\/(localhost|127\.0\.0\.1):\d+$/) ? +new URLSearchParams(location.search).get('day') : 0;
+  const jstDay = () => dayQ || Math.floor((Date.now() + 9 * 3600e3) / 86400e3);
   const DAY0 = Math.floor(Date.UTC(2026, 0, 1) / 86400e3);
   const settings = Object.assign({ dict: 'c', offset: 0, mode: 1, kbd: matchMedia('(pointer: fine)').matches }, store.get('su2:settings') || {});
   const q = new URLSearchParams(location.search);
-  if (q.has('p')) settings.offset = +q.get('p') - idxForDay(jstDay(), PROMPTS.length);
+  if (q.has('p')) settings.offset = +q.get('p') - idxForDay(jstDay(), PROMPTS);
   const saveSettings = () => store.set('su2:settings', settings);
   const maxTag = () => ({ a: 0, b: 2, c: 3 }[settings.dict]);
 
@@ -447,7 +451,7 @@ body { padding-top: env(safe-area-inset-top); }
   const rand = () => (crypto.randomUUID ? crypto.randomUUID() : [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join(''));
   let DEVICE = store.get('su2:device');
   if (!DEVICE) { DEVICE = rand(); store.set('su2:device', DEVICE); }
-  const todayIdx = () => idxForDay(jstDay(), PROMPTS.length);
+  const todayIdx = () => idxForDay(jstDay(), PROMPTS);
   const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   async function api(path, opt) {
     const r = await fetch(`${API}/api/v1${path}`, opt);
@@ -592,7 +596,7 @@ body { padding-top: env(safe-area-inset-top); }
   }
 
   let st; // 現在の盤面
-  const pIndex = () => (((idxForDay(jstDay(), PROMPTS.length) + settings.offset) % PROMPTS.length) + PROMPTS.length) % PROMPTS.length;
+  const pIndex = () => (((idxForDay(jstDay(), PROMPTS) + settings.offset) % PROMPTS.length) + PROMPTS.length) % PROMPTS.length;
   const saveKey = () => `su1:${PROMPTS[st.pi].word}:${st.mode}`;
 
   // 次の言葉の頭に用意する文字: 前の言葉の最後の字そのまま(濁点は残す。小さい字は大きい字、長音は母音)
@@ -602,7 +606,7 @@ body { padding-top: env(safe-area-inset-top); }
   function newState() {
     const pi = pIndex(), p = PROMPTS[pi];
     const used = new Array(TOTAL).fill(0); // 0 空き, 1 お題, 2 プレイヤー
-    for (const ch of p.word) { const n = NORM[ch] || ch; if (n in IDX) used[IDX[n]] = 1; }
+    for (const ch of p.word + (p.seal || '')) { const n = NORM[ch] || ch; if (n in IDX) used[IDX[n]] = 1; }
     return { pi, mode: settings.mode, used, link: p.link, comp: [p.link], chain: [], done: false, msg: '', msgOk: false };
   }
   function applyWord(r) { // 検証済みの単語を盤面に反映
@@ -673,7 +677,7 @@ body { padding-top: env(safe-area-inset-top); }
   }
   function fail(m) { st.msg = m; st.msgOk = false; render(true); return false; }
   // 節約の目安: 1語で消える文字は最低2つなので、残りの半分が最大の語数
-  const maxWords = () => Math.floor((TOTAL - new Set([...PROMPTS[st.pi].word].map(c => NORM[c] || c).filter(c => c in IDX)).size) / 2);
+  const maxWords = () => Math.floor((TOTAL - new Set([...PROMPTS[st.pi].word + (PROMPTS[st.pi].seal || '')].map(c => NORM[c] || c).filter(c => c in IDX)).size) / 2);
   const RANKS = [[0, '浪費家'], [0.2, '気まぐれさん'], [0.4, 'しっかり者'], [0.6, '節約家'], [0.8, '節約名人'], [0.95, '節約の神']];
   const rankOf = (n, M) => { let t = RANKS[0][1]; for (const [th, name] of RANKS) if (n / M >= th) t = name; return t; };
   function finish(why) {
@@ -758,7 +762,7 @@ body { padding-top: env(safe-area-inset-top); }
     const th = Math.round(tw * 1.18), fs = Math.round(tw * 0.6);
     return `<section class="prompt${big || long ? ' stack' : ''}">${lab ? `<p class="lab">${lab}</p>` : ''}
       <p class="w" aria-label="${p.disp || p.word}" style="--tw:${tw}px;--th:${th}px;--tf:${fs}px">${chars.map(c => `<span>${c}</span>`).join('')}</p>
-      <p class="go"><span class="t">最初は「</span><b>${p.link}</b><span class="t">」から始めます</span></p></section>`;
+      <p class="go"><span class="t">最初は「</span><b>${p.link}</b><span class="t">」から始めます</span></p>${big && p.note ? `<p class="pnote">${esc(p.note)}</p>` : ''}</section>`;
   }
 
   function render(shake) {
