@@ -238,6 +238,15 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
 .admtop .sc { font: 800 16px/1.4 var(--serif); } .admtop small { grid-column: 1 / -1; color: var(--sub); font-size: 11px; }
 .admchain { margin: 6px 0 8px; font: 600 15px/1.7 var(--serif); word-break: break-all; }
 .admdel { min-height: 36px; padding: 0 12px; font-size: 13px; color: var(--accent); }
+
+i.theory { display: inline-block; margin-left: 4px; padding: 0 8px; font-style: normal; font: 800 11px/20px system-ui, sans-serif; letter-spacing: .06em; color: #3b2a05;
+  background: linear-gradient(#f8d56a, #c79a3a); border-radius: 99px; box-shadow: 0 1px 0 #8a6a1d; vertical-align: middle; white-space: nowrap; }
+.theory-banner { margin: 2px 0 4px; font: 800 18px/1.5 var(--serif); letter-spacing: .2em; color: #8a6a1d; }
+.hist { margin: 0; padding: 0; list-style: none; border: 1px solid var(--edge); border-radius: 12px; overflow: hidden; background: rgba(255,255,255,.55); }
+.hist li { display: grid; grid-template-columns: 44px 1fr auto; gap: 8px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--edge); cursor: pointer; font-size: 14px; }
+.hist li:last-child { border-bottom: 0; } .hist li:active { background: rgba(200,64,42,.1); }
+.hist .hd { font: 800 14px/1.2 var(--serif); color: var(--sub); }
+.hist .hn small, .hist .hs small { display: block; font-size: 11px; color: var(--sub); } .hist .hs { text-align: right; font: 800 15px/1.3 var(--serif); }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
 /* ===== 画面: タイトル → ゲーム → 結果 ===== */
@@ -446,15 +455,18 @@ body { padding-top: env(safe-area-inset-top); }
     if (!r.ok) throw Object.assign(new Error(j.error || String(r.status)), { status: r.status, body: j });
     return j;
   }
-  function rankHTML(d, mode, withName, idp = '') {
-    if (mode === 2) {
-      return `<p class="myrank">今日の成功者 <b>${d.total}人</b></p>`;
-    }
+  const scoreText = (t, mode) => mode === 1
+    ? `${t.n}語${t.max ? ' <i class="theory">理論値</i>' : ''}`
+    : (t.rest === 0 ? '使い切り' : `のこり${t.rest}字`);
+  function rankHTML(d, mode, withName, idp = '', past = false) {
     const me = d.me;
     const list = d.top.length
-      ? `<ol class="rk-list">${d.top.map(t => `<li class="${t.mine ? 'me' : ''}"><span class="no">${t.rank}</span><span class="nm">${esc(t.name)}</span><span class="sc">${t.n}語</span></li>`).join('')}</ol>`
+      ? `<ol class="rk-list">${d.top.map(t => `<li class="${t.mine ? 'me' : ''}"><span class="no">${t.rank}</span><span class="nm">${esc(t.name)}</span><span class="sc">${scoreText(t, mode)}</span></li>`).join('')}</ol>`
       : '<p class="note">まだ誰も記録していません。</p>';
-    const head = me ? `<p class="myrank"><b>${me.rank}位</b> / ${d.total}人 <small>(同じ語数は同順位)</small></p>` : `<p class="myrank">今日の挑戦者 <b>${d.total}人</b></p>`;
+    const tie = mode === 1 ? '同じ語数は同順位' : '同じ文字数は同順位';
+    const head = me
+      ? `<p class="myrank"><b>${me.rank}位</b> / ${d.total}人 <small>(${tie})</small>${me.max ? ' <i class="theory">理論値</i>' : ''}</p>`
+      : `<p class="myrank">${past ? 'この日の挑戦者' : '今日の挑戦者'} <b>${d.total}人</b></p>`;
     const form = (withName && me) ? `<form id="${idp}nameForm" class="nameform"><label class="sr" for="${idp}nm">ニックネーム</label>
       <input id="${idp}nm" type="text" maxlength="12" placeholder="ニックネーム(任意)" value="${esc(store.get('su2:name') || '')}" autocomplete="nickname"><button class="btn ghost" type="submit">名前を登録</button></form>` : '';
     return head + list + form;
@@ -465,7 +477,7 @@ body { padding-top: env(safe-area-inset-top); }
     if (!box) return;
     if (st.pi !== todayIdx()) { box.innerHTML = '<p class="note">ランキングに載るのは、今日のお題だけです。</p>'; return; }
     box.innerHTML = '<p class="note">ランキングを読み込んでいます…</p>';
-    const r = st.result, send = !r.sent && (st.mode === 1 || r.why === 'clear');
+    const r = st.result, send = !r.sent && st.chain.length >= 1;
     try {
       let d;
       if (send) {
@@ -474,7 +486,7 @@ body { padding-top: env(safe-area-inset-top); }
         r.sent = true; persist();
       } else d = await api(`/ranking?mode=${st.mode}&device=${DEVICE}`);
       const b = $('#rankCard'); if (!b) return;
-      b.innerHTML = rankHTML(d, st.mode, st.mode === 1);
+      b.innerHTML = rankHTML(d, st.mode, true);
       const nf = $('#nameForm');
       if (nf) nf.onsubmit = async e => {
         e.preventDefault();
@@ -503,20 +515,39 @@ body { padding-top: env(safe-area-inset-top); }
   $('#sheet').onclick = e => { if (e.target.id === 'sheet') closeSheet(); };
   document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
 
-  async function showRanking() {
-    openSheet('今日のランキング', '<p class="note">読み込み中…</p>');
+  const LAUNCH_DAY = 20732; // 公開した日
+  let rkDay = null;
+  async function showRanking(day) {
+    const today = jstDay();
+    rkDay = typeof day === 'number' ? day : (rkDay === null || rkDay > today ? today : rkDay);
+    rkDay = Math.max(LAUNCH_DAY, Math.min(today, rkDay));
+    const isToday = rkDay === today;
+    if ($('#sheet').hidden) openSheet('ランキング', '<p class="note">読み込み中…</p>');
+    else $('#sheetBody').innerHTML = '<p class="note">読み込み中…</p>';
     try {
-      const [a, b] = await Promise.all([api(`/ranking?mode=1&device=${DEVICE}`), api(`/ranking?mode=2&device=${DEVICE}`)]);
-      $('#sheetBody').innerHTML = `<p class="note" style="margin:0 0 6px">お題「${esc((PROMPTS.find(x => x.word === a.prompt) || {}).disp || a.prompt)}」・毎日0時に変わります</p><h3>節約</h3>${rankHTML(a, 1, true, 's')}<h3>ハード</h3>${rankHTML(b, 2, false)}`;
+      const q = m => `/ranking?mode=${m}&device=${DEVICE}&day=${rkDay}`;
+      const [a, b, h] = await Promise.all([api(q(1)), api(q(2)), api(`/history?device=${DEVICE}`).catch(() => ({ rows: [] }))]);
+      const dispOf2 = w => (PROMPTS.find(x => x.word === w) || {}).disp || w;
+      const hist = h.rows.length ? `<h3>あなたの記録</h3><ul class="hist">${h.rows.map(r => `<li data-day="${r.day}"><span class="hd">${dayLabel(r.day)}</span><span class="hn">${esc(dispOf2(r.prompt))}<small>${r.mode === 1 ? '節約' : 'ハード'}</small></span>
+        <span class="hs">${r.mode === 1 ? r.n + '語' : (r.rest === 0 ? '使い切り' : 'のこり' + r.rest + '字')}${r.max ? ' <i class="theory">理論値</i>' : ''}<small>${r.rank}位 / ${r.total}人</small></span></li>`).join('')}</ul>` : '';
+      $('#sheetBody').innerHTML = `<div class="admday"><button class="btn ghost" id="rkPrev" type="button" ${rkDay <= LAUNCH_DAY ? 'disabled' : ''}>←</button>
+          <b>${dayLabel(rkDay)}${isToday ? '(今日)' : ''}</b><button class="btn ghost" id="rkNext" type="button" ${isToday ? 'disabled' : ''}>→</button></div>
+        <p class="note" style="margin:0 0 6px;text-align:center">お題「${esc(dispOf2(a.prompt))}」${isToday ? '・毎日0時に変わります' : ''}</p>
+        <h3>節約</h3>${rankHTML(a, 1, isToday, 's', !isToday)}<h3>ハード</h3>${rankHTML(b, 2, false, '', !isToday)}${hist}`;
+      $('#rkPrev').onclick = () => showRanking(rkDay - 1);
+      $('#rkNext').onclick = () => showRanking(rkDay + 1);
+      document.querySelectorAll('.hist li').forEach(li => { li.onclick = () => showRanking(+li.dataset.day); });
       const nf = $('#snameForm');
       if (nf) nf.onsubmit = async e => {
         e.preventDefault();
         const v = $('#snm').value.trim(); store.set('su2:name', v);
-        const saved = store.get(`su1:${PROMPTS[todayIdx()].word}:1`);
-        if (saved && saved.chain && saved.chain.length) {
-          try { await api('/score', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: PROMPTS[todayIdx()].word, mode: 1, chain: saved.chain, device: DEVICE, name: v }) }); } catch { /* 名前だけ保存される */ }
+        for (const mode of [1, 2]) {
+          const saved = store.get(`su1:${PROMPTS[todayIdx()].word}:${mode}`);
+          if (saved && saved.chain && saved.chain.length) {
+            try { await api('/score', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: PROMPTS[todayIdx()].word, mode, chain: saved.chain, device: DEVICE, name: v }) }); } catch { /* 名前だけ保存される */ }
+          }
         }
-        showRanking();
+        showRanking(rkDay);
       };
     } catch { $('#sheetBody').innerHTML = '<p class="note">ランキングに接続できませんでした。</p>'; }
   }
@@ -648,7 +679,7 @@ body { padding-top: env(safe-area-inset-top); }
   function finish(why) {
     st.done = true;
     const n = st.chain.length, rest = left(), M = maxWords();
-    st.result = { why, n, rest, M, sent: false };
+    st.result = { why, n, rest, M, sent: false, max: st.mode === 1 && n >= M };
     if (st.mode === 1) {
       st.result.rank = rankOf(n, M);
       const bk = `su2:best:${PROMPTS[st.pi].word}`, prev = store.get(bk) || 0;
@@ -673,8 +704,8 @@ body { padding-top: env(safe-area-inset-top); }
     const p = PROMPTS[st.pi], r = st.result;
     const head = `節約しりとり ${dateLabel()}${st.mode === 2 ? ' ハード' : ''}\nお題「${p.disp || p.word}」→「${p.link}」`;
     const body = st.mode === 2
-      ? (r.why === 'clear' ? `使い切り成功! (${r.n}語)` : r.why === 'giveup' ? `使い切り降参…(残り${r.rest}字)` : `使い切り失敗…(残り${r.rest}字)`)
-      : `${r.n}語つなげた!(最大${r.M}語)『${r.rank}』`;
+      ? (r.why === 'clear' ? `使い切り成功! (${r.n}語)` : `のこり${r.rest}字まで行った!(${r.n}語)`)
+      : `${r.n}語つなげた!(最大${r.M}語${r.max ? '・★理論値★' : ''})『${r.rank}』`;
     return `${head}\n${body}\n#節約しりとり\n${new URL('./', location.href).href}`;
   }
 
@@ -761,7 +792,7 @@ body { padding-top: env(safe-area-inset-top); }
     document.querySelectorAll('.pick button').forEach(b => { b.onclick = () => { settings.mode = +b.dataset.m; saveSettings(); restore(); render(); }; });
     $('#start').onclick = () => { if (!store.get('su2:seen')) showHow(true); else beginGame(); };
     $('#mHow').onclick = () => showHow(false);
-    $('#mRank').onclick = showRanking;
+    $('#mRank').onclick = () => showRanking();
     $('#mSet').onclick = showSettings;
   }
 
@@ -824,11 +855,11 @@ body { padding-top: env(safe-area-inset-top); }
     const r = st.result, p = PROMPTS[st.pi], mode1 = st.mode === 1;
     let top, sub;
     if (mode1) {
-      top = `<p class="rank-lab">あなたの称号</p><h2>『${r.rank}』</h2>`;
+      top = `<p class="rank-lab">あなたの称号</p><h2>『${r.rank}』</h2>${r.max ? '<p class="theory-banner">★ 理論値 ★</p>' : ''}`;
       sub = `${r.n}語つなげました(最大${r.M}語)。` + (r.newBest ? ' <b style="color:var(--accent)">自己ベスト更新!</b>' : r.best ? ` 自己ベスト ${r.best}語。` : '');
     } else {
-      top = `<h2>${r.why === 'clear' ? '使い切り成功!' : r.why === 'giveup' ? '降参' : '失敗'}</h2>`;
-      sub = r.why === 'clear' ? `${r.n}語で、すべての文字を使い切りました。` : `使い切れませんでした(残り${r.rest}字)。`;
+      top = r.why === 'clear' ? '<h2>使い切り成功!</h2>' : `<p class="rank-lab">ハードの記録</p><h2>のこり${r.rest}字</h2>`;
+      sub = r.why === 'clear' ? `${r.n}語で、すべての文字を使い切りました。` : `${r.n}語つなげて、のこり${r.rest}字まで行きました。少ないほど上位です。`;
     }
     app.innerHTML = `
       <div class="gbar"><span></span><span class="gmode">${mode1 ? '節約' : 'ハード'}</span><span></span></div>
@@ -887,9 +918,9 @@ body { padding-top: env(safe-area-inset-top); }
         const [prompt, mode] = k.split('|');
         let rank = 0, prev = null;
         return `<h3>${esc(dispOf(prompt))} ・ ${mode === '1' ? '節約' : 'ハード'} <small>${list.length}件</small></h3>` + list.map((r, i) => {
-          if (r.n !== prev) { rank = i + 1; prev = r.n; }
+          const key = mode === '1' ? r.n : r.rest; if (key !== prev) { rank = i + 1; prev = key; }
           let chain = []; try { chain = JSON.parse(r.chain); } catch { /* なし */ }
-          return `<div class="admrow"><div class="admtop"><b>${mode === '1' ? rank + '位' : '成功'}</b><span class="nm">${esc(r.name)}</span><span class="sc">${r.n}語</span><small>${hhmm(r.created)} ・ …${esc(r.device.slice(-4))}</small></div>
+          return `<div class="admrow"><div class="admtop"><b>${rank}位</b><span class="nm">${esc(r.name)}</span><span class="sc">${mode === '1' ? r.n + '語' : (r.rest === 0 ? '使い切り' : 'のこり' + r.rest + '字') + '(' + r.n + '語)'}</span><small>${hhmm(r.created)} ・ …${esc(r.device.slice(-4))}</small></div>
             <div class="admchain">${chain.map(w => esc(w)).join(' → ')}</div>
             <button type="button" class="btn ghost admdel" data-day="${r.day}" data-prompt="${esc(r.prompt)}" data-mode="${r.mode}" data-device="${esc(r.device)}">この記録を消す</button></div>`;
         }).join('');

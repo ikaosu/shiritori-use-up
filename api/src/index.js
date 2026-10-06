@@ -80,7 +80,10 @@ function today() {
 }
 
 // ---- 検証 ----
-async function validate(env, p, mode, chain) {
+// 節約の理論値: 1語で消える文字は最低2つなので、お題で残る文字の半分が最大の語数
+const maxWordsOf = p => Math.floor((TOTAL - new Set([...p.word].map(c => NORM[c] || c).filter(c => c in IDX)).size) / 2);
+
+async function validate(env, p, mode, chain, out) {
   if (!Array.isArray(chain) || chain.length < 1 || chain.length > TOTAL) return 'chain';
   const used = new Set([...p.word].map(c => NORM[c] || c).filter(c => c in IDX)); // 長音は消える文字ではない
   let link = p.link;
@@ -100,7 +103,8 @@ async function validate(env, p, mode, chain) {
     for (const c of a.cons) used.add(c);
     link = a.end;
   }
-  if (mode === 2 && TOTAL - used.size !== 0) return 'notcleared';
+  out.rest = TOTAL - used.size;
+  if (mode === 2 && link === 'ん' && out.rest > 0) return 'n_end'; // 「ん」で終わるのは、使い切るときだけ
   return null;
 }
 
@@ -119,22 +123,28 @@ const cleanName = s => String(s || '').normalize('NFKC').replace(/[\u0000-\u001f
 const DEVICE_RE = /^[A-Za-z0-9-]{8,64}$/;
 
 async function ranking(env, day, p, mode, device) {
+  const M = maxWordsOf(p);
   const total = (await env.DB.prepare('SELECT COUNT(*) AS c FROM scores WHERE day = ? AND prompt = ? AND mode = ?').bind(day, p.word, mode).first()).c;
-  let top = [];
-  if (mode === 1) {
-    const { results } = await env.DB.prepare('SELECT name, n, device FROM scores WHERE day = ? AND prompt = ? AND mode = 1 ORDER BY n DESC, created ASC LIMIT 10').bind(day, p.word).all();
-    let rank = 0, prev = null;
-    top = results.map((r, i) => { if (r.n !== prev) { rank = i + 1; prev = r.n; } return { rank, name: r.name, n: r.n, mine: !!device && r.device === device }; });
-  }
+  // 節約は語数が多いほど、ハードはのこり文字が少ないほど上位。同じなら、早く記録した方が上
+  const order = mode === 1 ? 'n DESC, created ASC' : 'COALESCE(rest, 999) ASC, created ASC';
+  const { results } = await env.DB.prepare(`SELECT name, n, rest, device FROM scores WHERE day = ? AND prompt = ? AND mode = ? ORDER BY ${order} LIMIT 10`).bind(day, p.word, mode).all();
+  let rank = 0, prev = null;
+  const top = results.map((r, i) => {
+    const key = mode === 1 ? r.n : r.rest;
+    if (key !== prev) { rank = i + 1; prev = key; }
+    return { rank, name: r.name, n: r.n, rest: mode === 2 ? r.rest : null, max: mode === 1 && r.n >= M, mine: !!device && r.device === device };
+  });
   let me = null;
   if (device) {
-    const row = await env.DB.prepare('SELECT name, n FROM scores WHERE day = ? AND prompt = ? AND mode = ? AND device = ?').bind(day, p.word, mode, device).first();
+    const row = await env.DB.prepare('SELECT name, n, rest FROM scores WHERE day = ? AND prompt = ? AND mode = ? AND device = ?').bind(day, p.word, mode, device).first();
     if (row) {
-      const rank = mode === 1 ? 1 + (await env.DB.prepare('SELECT COUNT(*) AS c FROM scores WHERE day = ? AND prompt = ? AND mode = 1 AND n > ?').bind(day, p.word, row.n).first()).c : null;
-      me = { name: row.name, n: row.n, rank };
+      const better = mode === 1
+        ? await env.DB.prepare('SELECT COUNT(*) AS c FROM scores WHERE day = ? AND prompt = ? AND mode = 1 AND n > ?').bind(day, p.word, row.n).first()
+        : await env.DB.prepare('SELECT COUNT(*) AS c FROM scores WHERE day = ? AND prompt = ? AND mode = 2 AND COALESCE(rest, 999) < ?').bind(day, p.word, row.rest ?? 999).first();
+      me = { name: row.name, n: row.n, rest: mode === 2 ? row.rest : null, max: mode === 1 && row.n >= M, rank: 1 + better.c };
     }
   }
-  return { day, prompt: p.word, mode, total, top, me };
+  return { day, prompt: p.word, mode, total, M, top, me };
 }
 
 export default {
@@ -149,7 +159,29 @@ export default {
       if (url.pathname === '/api/v1/ranking' && req.method === 'GET') {
         const mode = url.searchParams.get('mode') === '2' ? 2 : 1;
         const device = url.searchParams.get('device') || '';
-        return json(await ranking(env, day, p, mode, DEVICE_RE.test(device) ? device : ''), 200, cors);
+        // day を指定すると、過去の日のランキング(その日の公式のお題)を返す
+        let d = Math.floor(+url.searchParams.get('day') || day);
+        if (!(d >= day - 400 && d <= day)) d = day;
+        const pp = d === day ? p : prompts[idxForDay(d, prompts.length)];
+        return json(await ranking(env, d, pp, mode, DEVICE_RE.test(device) ? device : ''), 200, cors);
+      }
+
+      // その端末の、これまでの記録
+      if (url.pathname === '/api/v1/history' && req.method === 'GET') {
+        const device = url.searchParams.get('device') || '';
+        if (!DEVICE_RE.test(device)) return json({ error: 'param' }, 400, cors);
+        const { results } = await env.DB.prepare(
+          `SELECT s.day, s.prompt, s.mode, s.n, s.rest,
+             (CASE WHEN s.mode = 1
+               THEN (SELECT COUNT(*) FROM scores t WHERE t.day = s.day AND t.prompt = s.prompt AND t.mode = 1 AND t.n > s.n)
+               ELSE (SELECT COUNT(*) FROM scores t WHERE t.day = s.day AND t.prompt = s.prompt AND t.mode = 2 AND COALESCE(t.rest, 999) < COALESCE(s.rest, 999)) END) AS better,
+             (SELECT COUNT(*) FROM scores t WHERE t.day = s.day AND t.prompt = s.prompt AND t.mode = s.mode) AS total
+           FROM scores s WHERE s.device = ? ORDER BY s.day DESC, s.mode LIMIT 60`).bind(device).all();
+        const rows = results.map(r => {
+          const pr = prompts.find(x => x.word === r.prompt);
+          return { day: r.day, prompt: r.prompt, mode: r.mode, n: r.n, rest: r.mode === 2 ? r.rest : null, rank: r.better + 1, total: r.total, max: r.mode === 1 && !!pr && r.n >= maxWordsOf(pr) };
+        });
+        return json({ rows }, 200, cors);
       }
 
       if (url.pathname === '/api/v1/score' && req.method === 'POST') {
@@ -158,16 +190,18 @@ export default {
         const mode = b.mode === 2 ? 2 : b.mode === 1 ? 1 : 0;
         if (!mode || !DEVICE_RE.test(String(b.device || ''))) return json({ error: 'param' }, 400, cors);
         if (b.prompt !== p.word) return json({ error: 'expired', prompt: p.word }, 409, cors);
-        const bad = await validate(env, p, mode, b.chain);
+        const out = {};
+        const bad = await validate(env, p, mode, b.chain, out);
         if (bad) return json({ error: 'invalid', detail: bad }, 422, cors);
         const n = b.chain.length, name = cleanName(b.name), now = Date.now();
         await env.DB.prepare(
-          `INSERT INTO scores (day, prompt, mode, device, name, n, chain, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          `INSERT INTO scores (day, prompt, mode, device, name, n, rest, chain, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (day, prompt, mode, device) DO UPDATE SET name = excluded.name,
-             n = CASE WHEN excluded.n > scores.n THEN excluded.n ELSE scores.n END,
-             chain = CASE WHEN excluded.n > scores.n THEN excluded.chain ELSE scores.chain END,
-             created = CASE WHEN excluded.n > scores.n THEN excluded.created ELSE scores.created END`
-        ).bind(day, p.word, mode, b.device, name, n, JSON.stringify(b.chain), now).run();
+             n = CASE WHEN (excluded.mode = 1 AND excluded.n > scores.n) OR (excluded.mode = 2 AND excluded.rest < COALESCE(scores.rest, 999)) THEN excluded.n ELSE scores.n END,
+             chain = CASE WHEN (excluded.mode = 1 AND excluded.n > scores.n) OR (excluded.mode = 2 AND excluded.rest < COALESCE(scores.rest, 999)) THEN excluded.chain ELSE scores.chain END,
+             created = CASE WHEN (excluded.mode = 1 AND excluded.n > scores.n) OR (excluded.mode = 2 AND excluded.rest < COALESCE(scores.rest, 999)) THEN excluded.created ELSE scores.created END,
+             rest = CASE WHEN (excluded.mode = 1 AND excluded.n > scores.n) OR (excluded.mode = 2 AND excluded.rest < COALESCE(scores.rest, 999)) THEN excluded.rest ELSE scores.rest END`
+        ).bind(day, p.word, mode, b.device, name, n, out.rest, JSON.stringify(b.chain), now).run();
         return json({ ok: true, ...(await ranking(env, day, p, mode, b.device)) }, 200, cors);
       }
 
@@ -179,7 +213,7 @@ export default {
         }
         if (url.pathname === '/api/v1/admin/list') {
           const d = +(url.searchParams.get('day') || day);
-          const { results } = await env.DB.prepare('SELECT day, prompt, mode, device, name, n, chain, created FROM scores WHERE day = ? ORDER BY prompt, mode, n DESC, created').bind(d).all();
+          const { results } = await env.DB.prepare('SELECT day, prompt, mode, device, name, n, rest, chain, created FROM scores WHERE day = ? ORDER BY prompt, mode, CASE WHEN mode = 1 THEN -n ELSE COALESCE(rest, 999) END, created').bind(d).all();
           return json({ day: d, rows: results }, 200, cors);
         }
         if (url.pathname === '/api/v1/admin/delete' && req.method === 'POST') {

@@ -35,3 +35,8 @@ SudachiDict (Works Applications, Apache License 2.0)。公開時は帰属表示�
 - 手元で動かす: `wrangler d1 migrations apply shiritori --local -c api/wrangler.toml` → `wrangler dev -c api/wrangler.toml`。画面は `?api=http://127.0.0.1:8787` を付けて開く。`?dev` を付けると、設定に開発用(辞書の範囲・お題の切り替え)が出る
 - 公開: `wrangler deploy -c api/wrangler.toml`
 - 管理: 画面は `https://ikaosu.github.io/shiritori-use-up/#admin`(合言葉を入れると、日ごと・お題ごと・モードごとに、みんなの解答が見られて、記録を消せる)。API は `GET /api/v1/admin/days`・`/admin/list?day=`・`POST /admin/delete`(ヘッダ `x-admin-token`)
+
+## テストの決まり
+- **本番のデータベースには、テストの記録を書き込まない。** テストは、手元の `wrangler dev`(ローカルのD1)に向けて行う。画面は `?api=http://127.0.0.1:8787` を付けて開く
+- どうしても本番に入れるときは、名前を「TEST-」で始める。消すのも、その目印があるものだけ。**本物のプレイヤーの記録は、確認なしで消さない**
+- ハードは、使い切れなくても記録される(のこり文字が少ないほど上位)。節約は、語数が最大(理論値)のとき、印が付く
