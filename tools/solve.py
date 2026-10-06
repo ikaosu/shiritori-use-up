@@ -49,7 +49,7 @@ def popcount(x):
     return bin(x).count('1')
 
 
-def min_search(by_start, exact, used0, link0, width=400, topk=60, maxdepth=9):
+def min_search(by_start, exact, used0, link0, width=400, topk=60, maxdepth=9, mindepth=0):
     """ビーム探索で使い切り最少語数の目安を探す。"""
     rem0 = ALL & ~used0
     beam = {(rem0, link0): []}
@@ -57,7 +57,8 @@ def min_search(by_start, exact, used0, link0, width=400, topk=60, maxdepth=9):
         # 完了チェック: 次の1語で使い切れるか
         for (rem, link), path in beam.items():
             for w in exact.get((link, rem), []):
-                return path + [w]
+                if len(path) + 1 >= mindepth:
+                    return path + [w]
         nxt = {}
         for (rem, link), path in beam.items():
             cnt = 0
@@ -69,7 +70,9 @@ def min_search(by_start, exact, used0, link0, width=400, topk=60, maxdepth=9):
                 if e == N and nrem != 0:
                     continue
                 if nrem == 0:
-                    return path + [w]
+                    if len(path) + 1 >= mindepth:
+                        return path + [w]
+                    continue
                 key = (nrem, e)
                 if key not in nxt:
                     nxt[key] = path + [w]

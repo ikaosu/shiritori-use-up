@@ -106,7 +106,7 @@ async function validate(env, p, mode, chain, out) {
     link = a.end;
   }
   out.rest = TOTAL - used.size;
-  if (mode === 2 && link === 'ん' && out.rest > 0) return 'n_end'; // 「ん」で終わるのは、使い切るときだけ
+  if (mode === 2 && out.rest !== 0) return 'notcleared'; // 使い切りランキングは、使い切った人だけ
   return null;
 }
 
@@ -126,24 +126,22 @@ const DEVICE_RE = /^[A-Za-z0-9-]{8,64}$/;
 
 async function ranking(env, day, p, mode, device) {
   const M = maxWordsOf(p);
-  const total = (await env.DB.prepare('SELECT COUNT(*) AS c FROM scores WHERE day = ? AND prompt = ? AND mode = ?').bind(day, p.word, mode).first()).c;
-  // 節約は語数が多いほど、ハードはのこり文字が少ないほど上位。同じなら、早く記録した方が上
-  const order = mode === 1 ? 'n DESC, created ASC' : 'COALESCE(rest, 999) ASC, created ASC';
-  const { results } = await env.DB.prepare(`SELECT name, n, rest, device FROM scores WHERE day = ? AND prompt = ? AND mode = ? ORDER BY ${order} LIMIT 10`).bind(day, p.word, mode).all();
+  // 語数ランキング(mode 1)は、語数が多いほど上位。使い切りランキング(mode 2)は、使い切った人だけで、語数が少ないほど上位。同じなら、早く記録した方が上
+  const cond = mode === 2 ? 'AND rest = 0' : '';
+  const total = (await env.DB.prepare(`SELECT COUNT(*) AS c FROM scores WHERE day = ? AND prompt = ? AND mode = ? ${cond}`).bind(day, p.word, mode).first()).c;
+  const order = mode === 1 ? 'n DESC, created ASC' : 'n ASC, created ASC';
+  const { results } = await env.DB.prepare(`SELECT name, n, device FROM scores WHERE day = ? AND prompt = ? AND mode = ? ${cond} ORDER BY ${order} LIMIT 10`).bind(day, p.word, mode).all();
   let rank = 0, prev = null;
   const top = results.map((r, i) => {
-    const key = mode === 1 ? r.n : r.rest;
-    if (key !== prev) { rank = i + 1; prev = key; }
-    return { rank, name: r.name, n: r.n, rest: mode === 2 ? r.rest : null, max: mode === 1 && r.n >= M, mine: !!device && r.device === device };
+    if (r.n !== prev) { rank = i + 1; prev = r.n; }
+    return { rank, name: r.name, n: r.n, rest: mode === 2 ? 0 : null, max: mode === 1 && r.n >= M, mine: !!device && r.device === device };
   });
   let me = null;
   if (device) {
-    const row = await env.DB.prepare('SELECT name, n, rest FROM scores WHERE day = ? AND prompt = ? AND mode = ? AND device = ?').bind(day, p.word, mode, device).first();
+    const row = await env.DB.prepare(`SELECT name, n FROM scores WHERE day = ? AND prompt = ? AND mode = ? ${cond} AND device = ?`).bind(day, p.word, mode, device).first();
     if (row) {
-      const better = mode === 1
-        ? await env.DB.prepare('SELECT COUNT(*) AS c FROM scores WHERE day = ? AND prompt = ? AND mode = 1 AND n > ?').bind(day, p.word, row.n).first()
-        : await env.DB.prepare('SELECT COUNT(*) AS c FROM scores WHERE day = ? AND prompt = ? AND mode = 2 AND COALESCE(rest, 999) < ?').bind(day, p.word, row.rest ?? 999).first();
-      me = { name: row.name, n: row.n, rest: mode === 2 ? row.rest : null, max: mode === 1 && row.n >= M, rank: 1 + better.c };
+      const better = await env.DB.prepare(`SELECT COUNT(*) AS c FROM scores WHERE day = ? AND prompt = ? AND mode = ? ${cond} AND n ${mode === 1 ? '>' : '<'} ?`).bind(day, p.word, mode, row.n).first();
+      me = { name: row.name, n: row.n, rest: mode === 2 ? 0 : null, max: mode === 1 && row.n >= M, rank: 1 + better.c };
     }
   }
   return { day, prompt: p.word, mode, total, M, top, me };
@@ -176,9 +174,9 @@ export default {
           `SELECT s.day, s.prompt, s.mode, s.n, s.rest,
              (CASE WHEN s.mode = 1
                THEN (SELECT COUNT(*) FROM scores t WHERE t.day = s.day AND t.prompt = s.prompt AND t.mode = 1 AND t.n > s.n)
-               ELSE (SELECT COUNT(*) FROM scores t WHERE t.day = s.day AND t.prompt = s.prompt AND t.mode = 2 AND COALESCE(t.rest, 999) < COALESCE(s.rest, 999)) END) AS better,
-             (SELECT COUNT(*) FROM scores t WHERE t.day = s.day AND t.prompt = s.prompt AND t.mode = s.mode) AS total
-           FROM scores s WHERE s.device = ? ORDER BY s.day DESC, s.mode LIMIT 60`).bind(device).all();
+               ELSE (SELECT COUNT(*) FROM scores t WHERE t.day = s.day AND t.prompt = s.prompt AND t.mode = 2 AND t.rest = 0 AND t.n < s.n) END) AS better,
+             (SELECT COUNT(*) FROM scores t WHERE t.day = s.day AND t.prompt = s.prompt AND t.mode = s.mode AND (s.mode = 1 OR t.rest = 0)) AS total
+           FROM scores s WHERE s.device = ? AND (s.mode = 1 OR s.rest = 0) ORDER BY s.day DESC, s.mode LIMIT 60`).bind(device).all();
         const rows = results.map(r => {
           const pr = prompts.find(x => x.word === r.prompt);
           return { day: r.day, prompt: r.prompt, mode: r.mode, n: r.n, rest: r.mode === 2 ? r.rest : null, rank: r.better + 1, total: r.total, max: r.mode === 1 && !!pr && r.n >= maxWordsOf(pr) };
@@ -199,10 +197,10 @@ export default {
         await env.DB.prepare(
           `INSERT INTO scores (day, prompt, mode, device, name, n, rest, chain, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
            ON CONFLICT (day, prompt, mode, device) DO UPDATE SET name = excluded.name,
-             n = CASE WHEN (excluded.mode = 1 AND excluded.n > scores.n) OR (excluded.mode = 2 AND excluded.rest < COALESCE(scores.rest, 999)) THEN excluded.n ELSE scores.n END,
-             chain = CASE WHEN (excluded.mode = 1 AND excluded.n > scores.n) OR (excluded.mode = 2 AND excluded.rest < COALESCE(scores.rest, 999)) THEN excluded.chain ELSE scores.chain END,
-             created = CASE WHEN (excluded.mode = 1 AND excluded.n > scores.n) OR (excluded.mode = 2 AND excluded.rest < COALESCE(scores.rest, 999)) THEN excluded.created ELSE scores.created END,
-             rest = CASE WHEN (excluded.mode = 1 AND excluded.n > scores.n) OR (excluded.mode = 2 AND excluded.rest < COALESCE(scores.rest, 999)) THEN excluded.rest ELSE scores.rest END`
+             n = CASE WHEN (excluded.mode = 1 AND excluded.n > scores.n) OR (excluded.mode = 2 AND (excluded.rest < COALESCE(scores.rest, 999) OR (excluded.rest = COALESCE(scores.rest, 999) AND excluded.n < scores.n))) THEN excluded.n ELSE scores.n END,
+             chain = CASE WHEN (excluded.mode = 1 AND excluded.n > scores.n) OR (excluded.mode = 2 AND (excluded.rest < COALESCE(scores.rest, 999) OR (excluded.rest = COALESCE(scores.rest, 999) AND excluded.n < scores.n))) THEN excluded.chain ELSE scores.chain END,
+             created = CASE WHEN (excluded.mode = 1 AND excluded.n > scores.n) OR (excluded.mode = 2 AND (excluded.rest < COALESCE(scores.rest, 999) OR (excluded.rest = COALESCE(scores.rest, 999) AND excluded.n < scores.n))) THEN excluded.created ELSE scores.created END,
+             rest = CASE WHEN (excluded.mode = 1 AND excluded.n > scores.n) OR (excluded.mode = 2 AND (excluded.rest < COALESCE(scores.rest, 999) OR (excluded.rest = COALESCE(scores.rest, 999) AND excluded.n < scores.n))) THEN excluded.rest ELSE scores.rest END`
         ).bind(day, p.word, mode, b.device, name, n, out.rest, JSON.stringify(b.chain), now).run();
         return json({ ok: true, ...(await ranking(env, day, p, mode, b.device)) }, 200, cors);
       }
@@ -215,7 +213,7 @@ export default {
         }
         if (url.pathname === '/api/v1/admin/list') {
           const d = +(url.searchParams.get('day') || day);
-          const { results } = await env.DB.prepare('SELECT day, prompt, mode, device, name, n, rest, chain, created FROM scores WHERE day = ? ORDER BY prompt, mode, CASE WHEN mode = 1 THEN -n ELSE COALESCE(rest, 999) END, created').bind(d).all();
+          const { results } = await env.DB.prepare('SELECT day, prompt, mode, device, name, n, rest, chain, created FROM scores WHERE day = ? ORDER BY prompt, mode, CASE WHEN mode = 1 THEN -n ELSE COALESCE(rest, 999) * 100 + n END, created').bind(d).all();
           return json({ day: d, rows: results }, 200, cors);
         }
         if (url.pathname === '/api/v1/admin/delete' && req.method === 'POST') {

@@ -249,6 +249,9 @@ i.theory { display: inline-block; margin-left: 4px; padding: 0 8px; font-style: 
 .hist .hn small, .hist .hs small { display: block; font-size: 11px; color: var(--sub); } .hist .hs { text-align: right; font: 800 15px/1.3 var(--serif); }
 
 .prompt .pnote { margin: 8px 6px 0; font-size: 13px; line-height: 1.6; color: #f3dca0; text-align: center; }
+
+.clear-banner { margin: 2px 0 4px; font: 800 18px/1.5 var(--serif); letter-spacing: .2em; color: var(--ok); }
+.rkh { margin: 14px 0 6px; font: 800 15px/1.4 var(--serif); } .rkh small { font: 500 11px/1.4 system-ui, sans-serif; color: var(--sub); }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
 /* ===== 画面: タイトル → ゲーム → 結果 ===== */
@@ -461,20 +464,21 @@ body { padding-top: env(safe-area-inset-top); }
   }
   const scoreText = (t, mode) => mode === 1
     ? `${t.n}語${t.max ? ' <i class="theory">理論値</i>' : ''}`
-    : (t.rest === 0 ? '使い切り' : `のこり${t.rest}字`);
+    : `${t.n}語で使い切り`;
   function rankHTML(d, mode, withName, idp = '', past = false) {
     const me = d.me;
     const list = d.top.length
       ? `<ol class="rk-list">${d.top.map(t => `<li class="${t.mine ? 'me' : ''}"><span class="no">${t.rank}</span><span class="nm">${esc(t.name)}</span><span class="sc">${scoreText(t, mode)}</span></li>`).join('')}</ol>`
       : '<p class="note">まだ誰も記録していません。</p>';
-    const tie = mode === 1 ? '同じ語数は同順位' : '同じ文字数は同順位';
+    const tie = '同じ語数は同順位';
     const head = me
       ? `<p class="myrank"><b>${me.rank}位</b> / ${d.total}人 <small>(${tie})</small>${me.max ? ' <i class="theory">理論値</i>' : ''}</p>`
-      : `<p class="myrank">${past ? 'この日の挑戦者' : '今日の挑戦者'} <b>${d.total}人</b></p>`;
+      : `<p class="myrank">${mode === 2 ? (past ? 'この日の使い切り' : '今日の使い切り') : (past ? 'この日の挑戦者' : '今日の挑戦者')} <b>${d.total}人</b></p>`;
     const form = (withName && me) ? `<form id="${idp}nameForm" class="nameform"><label class="sr" for="${idp}nm">ニックネーム</label>
       <input id="${idp}nm" type="text" maxlength="12" placeholder="ニックネーム(任意)" value="${esc(store.get('su2:name') || '')}" autocomplete="nickname"><button class="btn ghost" type="submit">名前を登録</button></form>` : '';
     return head + list + form;
   }
+  const RK1 = '語数ランキング <small>多いほど上位</small>', RK2 = '使い切りランキング <small>使い切った人だけ。少ない語数ほど上位</small>';
   // 結果画面のランキング(今日のお題で、成功/節約の結果が出たときだけ送る)
   async function loadRank() {
     const box = $('#rankCard');
@@ -483,14 +487,16 @@ body { padding-top: env(safe-area-inset-top); }
     box.innerHTML = '<p class="note">ランキングを読み込んでいます…</p>';
     const r = st.result, send = !r.sent && st.chain.length >= 1;
     try {
-      let d;
+      let d1, d2;
       if (send) {
-        d = await api('/score', { method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ prompt: PROMPTS[st.pi].word, mode: st.mode, chain: st.chain, device: DEVICE, name: store.get('su2:name') || '' }) });
+        const post = m => api('/score', { method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ prompt: PROMPTS[st.pi].word, mode: m, chain: st.chain, device: DEVICE, name: store.get('su2:name') || '' }) });
+        d1 = await post(1);
+        d2 = r.clear ? await post(2) : await api(`/ranking?mode=2&device=${DEVICE}`); // 使い切ったときだけ、使い切りランキングにも載る
         r.sent = true; persist();
-      } else d = await api(`/ranking?mode=${st.mode}&device=${DEVICE}`);
+      } else [d1, d2] = await Promise.all([api(`/ranking?mode=1&device=${DEVICE}`), api(`/ranking?mode=2&device=${DEVICE}`)]);
       const b = $('#rankCard'); if (!b) return;
-      b.innerHTML = rankHTML(d, st.mode, true);
+      b.innerHTML = `<h3 class="rkh">${RK1}</h3>${rankHTML(d1, 1, true)}<h3 class="rkh">${RK2}</h3>${r.clear ? '' : `<p class="note">のこり${r.rest}字でした。全部の文字を使い切ると、このランキングに載ります。</p>`}${rankHTML(d2, 2, false)}`;
       const nf = $('#nameForm');
       if (nf) nf.onsubmit = async e => {
         e.preventDefault();
@@ -532,12 +538,14 @@ body { padding-top: env(safe-area-inset-top); }
       const q = m => `/ranking?mode=${m}&device=${DEVICE}&day=${rkDay}`;
       const [a, b, h] = await Promise.all([api(q(1)), api(q(2)), api(`/history?device=${DEVICE}`).catch(() => ({ rows: [] }))]);
       const dispOf2 = w => (PROMPTS.find(x => x.word === w) || {}).disp || w;
-      const hist = h.rows.length ? `<h3>あなたの記録</h3><ul class="hist">${h.rows.map(r => `<li data-day="${r.day}"><span class="hd">${dayLabel(r.day)}</span><span class="hn">${esc(dispOf2(r.prompt))}<small>${r.mode === 1 ? '節約' : 'ハード'}</small></span>
-        <span class="hs">${r.mode === 1 ? r.n + '語' : (r.rest === 0 ? '使い切り' : 'のこり' + r.rest + '字')}${r.max ? ' <i class="theory">理論値</i>' : ''}<small>${r.rank}位 / ${r.total}人</small></span></li>`).join('')}</ul>` : '';
+      const groups = new Map();
+      for (const r of h.rows) { const k = `${r.day}|${r.prompt}`; if (!groups.has(k)) groups.set(k, { day: r.day, prompt: r.prompt }); groups.get(k)[r.mode] = r; }
+      const hist = groups.size ? `<h3>あなたの記録</h3><ul class="hist">${[...groups.values()].map(g => `<li data-day="${g.day}"><span class="hd">${dayLabel(g.day)}</span><span class="hn">${esc(dispOf2(g.prompt))}</span>
+        <span class="hs">${g[1] ? `${g[1].n}語${g[1].max ? ' <i class="theory">理論値</i>' : ''}<small>語数 ${g[1].rank}位 / ${g[1].total}人</small>` : ''}${g[2] ? `${g[2].n}語で使い切り<small>使い切り ${g[2].rank}位 / ${g[2].total}人</small>` : ''}</span></li>`).join('')}</ul>` : '';
       $('#sheetBody').innerHTML = `<div class="admday"><button class="btn ghost" id="rkPrev" type="button" ${rkDay <= LAUNCH_DAY ? 'disabled' : ''}>←</button>
           <b>${dayLabel(rkDay)}${isToday ? '(今日)' : ''}</b><button class="btn ghost" id="rkNext" type="button" ${isToday ? 'disabled' : ''}>→</button></div>
         <p class="note" style="margin:0 0 6px;text-align:center">お題「${esc(dispOf2(a.prompt))}」${isToday ? '・毎日0時に変わります' : ''}</p>
-        <h3>節約</h3>${rankHTML(a, 1, isToday, 's', !isToday)}<h3>ハード</h3>${rankHTML(b, 2, false, '', !isToday)}${hist}`;
+        <h3>${RK1}</h3>${rankHTML(a, 1, isToday, 's', !isToday)}<h3>${RK2}</h3>${rankHTML(b, 2, false, '', !isToday)}${hist}`;
       $('#rkPrev').onclick = () => showRanking(rkDay - 1);
       $('#rkNext').onclick = () => showRanking(rkDay + 1);
       document.querySelectorAll('.hist li').forEach(li => { li.onclick = () => showRanking(+li.dataset.day); });
@@ -545,9 +553,9 @@ body { padding-top: env(safe-area-inset-top); }
       if (nf) nf.onsubmit = async e => {
         e.preventDefault();
         const v = $('#snm').value.trim(); store.set('su2:name', v);
-        for (const mode of [1, 2]) {
-          const saved = store.get(`su1:${PROMPTS[todayIdx()].word}:${mode}`);
-          if (saved && saved.chain && saved.chain.length) {
+        const saved = store.get(`su1:${PROMPTS[todayIdx()].word}:1`);
+        if (saved && saved.chain && saved.chain.length) {
+          for (const mode of [1, 2]) {
             try { await api('/score', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: PROMPTS[todayIdx()].word, mode, chain: saved.chain, device: DEVICE, name: v }) }); } catch { /* 名前だけ保存される */ }
           }
         }
@@ -561,15 +569,14 @@ body { padding-top: env(safe-area-inset-top); }
       <ol class="how">
         <li><b>お題の文字は、はじめから使えない</b><span>「こもれび」なら、こ・も・れ・び が最初から消えています。</span></li>
         <li><b>最後の文字から、しりとり</b><span>言葉の<b>2文字目以降</b>が消えます。消えた文字は、二度と使えません。表の文字をタップして、言葉をつくります。</span></li>
-        <li><b>節約するほど、長くつながる</b><span>1語で消える文字が少ないほどお得。つないだ語数で称号がつき、毎日のランキングに載ります。</span></li>
+        <li><b>1回の挑戦が、2つのランキングに載る</b><span>つないだ<b>語数</b>(多いほど上位。最大語数なら理論値)と、<b>使い切り</b>(全部の文字を使い切った人だけ。少ない語数ほど上位)です。</span></li>
       </ol>
-      <h3>2つのモード</h3>
-      <p class="note" style="margin:0"><b>節約</b>: 続けられなくなるまで、できるだけ多くつなぐ。<br><b>ハード</b>: 50音をぜんぶ使い切れたら成功(語数はおまけ)。</p>
+      <p class="note" style="margin:0"><b>続けられなくなったら</b>、「ここで終わる」で結果へ。全部の文字を使い切ると、自動で終わります。</p>
       <details><summary>くわしいルール</summary><ul>
         <li>使えるのは、辞書にある名詞(固有名詞も可)で、長音「ー」を除いて3文字以上の言葉です。「を」は使えません。</li>
         <li>濁音・半濁音は清音、小さい字は大きい字と同じ文字として数えます(「が」は「か」)。長音「ー」は消えず、次は直前の文字の母音から始めます。</li>
         <li>「゛」「゜」「小」「ー」のキーで、濁点・半濁点・小さい字・長音に変えられます。</li>
-        <li>「ん」で終わると続けられません(ハードでは、使い切る最後の1語だけ可)。</li>
+        <li>「ん」で終わると続けられないので、そこで終わりです。</li>
         <li>ランキングに送られるのは、ニックネーム(任意)と、つないだ言葉の列だけです。記録は、この端末のブラウザに保存されます。</li>
       </ul></details>
       ${first ? '<button class="btn start" id="howGo" type="button" style="margin-top:14px">はじめる</button>' : ''}`,
@@ -607,7 +614,7 @@ body { padding-top: env(safe-area-inset-top); }
     const pi = pIndex(), p = PROMPTS[pi];
     const used = new Array(TOTAL).fill(0); // 0 空き, 1 お題, 2 プレイヤー
     for (const ch of p.word + (p.seal || '')) { const n = NORM[ch] || ch; if (n in IDX) used[IDX[n]] = 1; }
-    return { pi, mode: settings.mode, used, link: p.link, comp: [p.link], chain: [], done: false, msg: '', msgOk: false };
+    return { pi, mode: 1, used, link: p.link, comp: [p.link], chain: [], done: false, msg: '', msgOk: false };
   }
   function applyWord(r) { // 検証済みの単語を盤面に反映
     const a = analyze(r);
@@ -634,7 +641,6 @@ body { padding-top: env(safe-area-inset-top); }
     for (let i = 0; i < sA.length; i++) {
       if (sA[i] !== link || tA[i] > lim) continue;
       if ((loA[i] & ~remLo) || (hiA[i] & ~remHi)) continue;
-      if (eA[i] === N && st.mode === 2 && cA[i] !== remAll) continue;
       return true;
     }
     return false;
@@ -662,7 +668,6 @@ body { padding-top: env(safe-area-inset-top); }
     const t = dict.get(r);
     if (t === undefined || t > maxTag()) return fail('辞書にない言葉です。');
     const after = TOTAL - st.used.filter(v => v).length - a.cons.length;
-    if (a.end === 'ん' && after > 0 && st.mode === 2) return fail('「ん」で終わると続けられません。使い切るときの最後だけ使えます。');
     applyWord(r);
     st.flash = a.cons.map(c => IDX[c]);
     st.msg = ''; st.msgOk = false;
@@ -683,13 +688,11 @@ body { padding-top: env(safe-area-inset-top); }
   function finish(why) {
     st.done = true;
     const n = st.chain.length, rest = left(), M = maxWords();
-    st.result = { why, n, rest, M, sent: false, max: st.mode === 1 && n >= M };
-    if (st.mode === 1) {
-      st.result.rank = rankOf(n, M);
-      const bk = `su2:best:${PROMPTS[st.pi].word}`, prev = store.get(bk) || 0;
-      st.result.best = Math.max(prev, n); st.result.newBest = prev > 0 && n > prev;
-      if (n > prev) store.set(bk, n);
-    }
+    st.result = { why, n, rest, M, sent: false, max: n >= M, clear: rest === 0 };
+    st.result.rank = rankOf(n, M);
+    const bk = `su2:best:${PROMPTS[st.pi].word}`, prev = store.get(bk) || 0;
+    st.result.best = Math.max(prev, n); st.result.newBest = prev > 0 && n > prev;
+    if (n > prev) store.set(bk, n);
   }
   function undo() {
     if (!st.chain.length) return;
@@ -706,10 +709,8 @@ body { padding-top: env(safe-area-inset-top); }
   const dateLabel = () => { const d = new Date(Date.now() + 9 * 3600e3); return `${d.getUTCMonth() + 1}/${d.getUTCDate()}`; };
   function shareText() {
     const p = PROMPTS[st.pi], r = st.result;
-    const head = `節約しりとり ${dateLabel()}${st.mode === 2 ? ' ハード' : ''}\nお題「${p.disp || p.word}」→「${p.link}」`;
-    const body = st.mode === 2
-      ? (r.why === 'clear' ? `使い切り成功! (${r.n}語)` : `のこり${r.rest}字まで行った!(${r.n}語)`)
-      : `${r.n}語つなげた!(最大${r.M}語${r.max ? '・★理論値★' : ''})『${r.rank}』`;
+    const head = `節約しりとり ${dateLabel()}\nお題「${p.disp || p.word}」→「${p.link}」`;
+    const body = `${r.n}語つなげた!(最大${r.M}語) ${r.rest === 0 ? '使い切り!' : 'のこり' + r.rest + '字'}${r.max ? ' ★理論値★' : ''}\n『${r.rank}』`;
     return `${head}\n${body}\n#節約しりとり\n${new URL('./', location.href).href}`;
   }
 
@@ -774,7 +775,7 @@ body { padding-top: env(safe-area-inset-top); }
   }
 
   function renderTitle() {
-    const p = PROMPTS[st.pi], mode1 = st.mode === 1;
+    const p = PROMPTS[st.pi];
     const today = store.get(`su2:best:${p.word}`) || 0;
     const keys = bestKeys(); let all = 0; for (const k of keys) all = Math.max(all, store.get(k) || 0);
     const inprog = !st.done && st.chain.length > 0;
@@ -784,16 +785,11 @@ body { padding-top: env(safe-area-inset-top); }
         <h1>節約しりとり</h1>
         <p class="tag">使った文字は、二度と使えない。</p>
         ${promptHTML(p, '今日のお題', true)}
-        <div class="pick" role="group" aria-label="モード">
-          <button type="button" data-m="1" aria-pressed="${mode1}"><b>節約</b><small>できるだけ多くつなぐ</small></button>
-          <button type="button" data-m="2" aria-pressed="${!mode1}"><b>ハード</b><small>全部の文字を使い切る</small></button>
-        </div>
-        <button class="btn start" id="start" type="button">${inprog ? 'つづきから' : 'スタート'}</button>
+        <button class="btn start" id="start" type="button" style="margin-top:16px">${inprog ? 'つづきから' : 'スタート'}</button>
         <div class="stats"><div>今日のベスト<b>${today ? today + '語' : '—'}</b></div><div>自己ベスト<b>${all ? all + '語' : '—'}</b></div><div>遊んだ日<b>${keys.length}</b></div></div>
         <div class="menu"><button class="btn ghost" id="mHow" type="button">遊び方</button><button class="btn ghost" id="mRank" type="button">ランキング</button><button class="btn ghost" id="mSet" type="button">設定</button></div>
         <p class="credit">辞書: <a href="https://github.com/WorksApplications/SudachiDict">SudachiDict</a> (Works Applications, Apache License 2.0) をもとに加工</p>
       </div>`;
-    document.querySelectorAll('.pick button').forEach(b => { b.onclick = () => { settings.mode = +b.dataset.m; saveSettings(); restore(); render(); }; });
     $('#start').onclick = () => { if (!store.get('su2:seen')) showHow(true); else beginGame(); };
     $('#mHow').onclick = () => showHow(false);
     $('#mRank').onclick = () => showRanking();
@@ -810,12 +806,11 @@ body { padding-top: env(safe-area-inset-top); }
       const cls = ['cell', v === 1 ? 'base' : v === 2 ? 'used' : '', ch === st.link ? 'next' : '', picked.has(ch) ? 'picked' : '', tappable ? 'tap' : '', st.flash && st.flash.includes(i) ? 'flash' : ''].join(' ');
       return `<button type="button" class="${cls}" data-ch="${ch}" ${tappable ? '' : 'disabled'}>${ch}</button>`;
     }).join('')).join('');
-    const mode1 = st.mode === 1;
     const chain = st.chain.length ? `<ul class="chain" aria-label="つないだ言葉">${st.chain.map(r => `<li><i>${r[0]}</i>${r.slice(1)}</li>`).join('')}</ul>` : '';
     app.innerHTML = `
       <div class="gbar">
         <button class="btn ghost gb" id="back" type="button">← やめる</button>
-        <span class="gmode">${mode1 ? '節約' : 'ハード'}</span>
+        <span class="gmode"></span>
         <span class="gcount"><b>${st.chain.length}</b>語 ・ 残り<b>${left()}</b>字</span>
       </div>
       ${promptHTML(p, '')}
@@ -835,7 +830,7 @@ body { padding-top: env(safe-area-inset-top); }
       ${chain}
       <div class="ctrl">
         <button class="btn ghost" id="undo" type="button" ${st.chain.length ? '' : 'disabled'}>1つ戻す</button>
-        <button class="btn ghost" id="stop" type="button">${mode1 ? 'ここで終わる' : '降参'}</button>
+        <button class="btn ghost" id="stop" type="button">ここで終わる</button>
       </div>
       ${settings.kbd ? `<form id="f" autocomplete="off" class="kbdform"><label class="sr" for="w">言葉</label>
         <input id="w" type="text" lang="ja" enterkeyhint="send" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="「${st.link}」から始まる言葉">
@@ -849,24 +844,17 @@ body { padding-top: env(safe-area-inset-top); }
     $('#back').onclick = () => { if (history.state && history.state.s === 'play') history.back(); else { screen = 'title'; render(); } };
     $('#undo').onclick = undo;
     $('#stop').onclick = () => {
-      if (!mode1 && !confirm('降参しますか？')) return;
-      if (mode1 && !st.chain.length) { screen = 'title'; render(); return; }
-      finish(mode1 ? 'end' : 'giveup'); persist(); render();
+      if (!st.chain.length) { screen = 'title'; render(); return; }
+      finish('end'); persist(); render();
     };
   }
 
   function renderResult() {
-    const r = st.result, p = PROMPTS[st.pi], mode1 = st.mode === 1;
-    let top, sub;
-    if (mode1) {
-      top = `<p class="rank-lab">あなたの称号</p><h2>『${r.rank}』</h2>${r.max ? '<p class="theory-banner">★ 理論値 ★</p>' : ''}`;
-      sub = `${r.n}語つなげました(最大${r.M}語)。` + (r.newBest ? ' <b style="color:var(--accent)">自己ベスト更新!</b>' : r.best ? ` 自己ベスト ${r.best}語。` : '');
-    } else {
-      top = r.why === 'clear' ? '<h2>使い切り成功!</h2>' : `<p class="rank-lab">ハードの記録</p><h2>のこり${r.rest}字</h2>`;
-      sub = r.why === 'clear' ? `${r.n}語で、すべての文字を使い切りました。` : `${r.n}語つなげて、のこり${r.rest}字まで行きました。少ないほど上位です。`;
-    }
+    const r = st.result, p = PROMPTS[st.pi];
+    const top = `<p class="rank-lab">あなたの称号</p><h2>『${r.rank}』</h2>${r.max ? '<p class="theory-banner">★ 理論値 ★</p>' : ''}${r.clear ? '<p class="clear-banner">使い切り!</p>' : ''}`;
+    const sub = `${r.n}語つなげました(最大${r.M}語)。` + (r.clear ? 'すべての文字を使い切りました。' : `のこり${r.rest}字です。`) + (r.newBest ? ' <b style="color:var(--accent)">自己ベスト更新!</b>' : r.best ? ` 自己ベスト ${r.best}語。` : '');
     app.innerHTML = `
-      <div class="gbar"><span></span><span class="gmode">${mode1 ? '節約' : 'ハード'}</span><span></span></div>
+      <div class="gbar"><span></span><span class="gmode"></span><span></span></div>
       ${promptHTML(p, '')}
       <section class="result">${top}<p style="margin:0">${sub}</p><pre id="share"></pre>
         <div class="ctrl"><button class="btn" id="shareBtn" type="button">結果を共有</button></div>
@@ -874,11 +862,11 @@ body { padding-top: env(safe-area-inset-top); }
         <div class="rankcard" id="rankCard"></div>
       </section>
       <button class="btn start" id="again" type="button" style="margin-top:14px">もう一度</button>
-      <div class="menu2"><button class="btn ghost" id="toTitle" type="button">タイトルへ</button><button class="btn ghost" id="switchMode" type="button">${mode1 ? 'ハードに挑戦' : '節約に挑戦'}</button></div>`;
+      <div class="menu2"><button class="btn ghost" id="toTitle" type="button">タイトルへ</button><button class="btn ghost" id="toRank" type="button">ランキング</button></div>`;
     $('#share').textContent = shareText();
     $('#again').onclick = () => { store.set(saveKey(), { chain: [], done: false }); restore(); go('play'); };
     $('#toTitle').onclick = () => { screen = 'title'; render(); scrollTo(0, 0); };
-    $('#switchMode').onclick = () => { settings.mode = mode1 ? 2 : 1; saveSettings(); restore(); beginGame(); };
+    $('#toRank').onclick = () => showRanking();
     $('#shareBtn').onclick = async () => {
       const text = shareText();
       try {
@@ -921,10 +909,10 @@ body { padding-top: env(safe-area-inset-top); }
       const body = [...groups.entries()].map(([k, list]) => {
         const [prompt, mode] = k.split('|');
         let rank = 0, prev = null;
-        return `<h3>${esc(dispOf(prompt))} ・ ${mode === '1' ? '節約' : 'ハード'} <small>${list.length}件</small></h3>` + list.map((r, i) => {
-          const key = mode === '1' ? r.n : r.rest; if (key !== prev) { rank = i + 1; prev = key; }
+        return `<h3>${esc(dispOf(prompt))} ・ ${mode === '1' ? '語数' : '使い切り'} <small>${list.length}件</small></h3>` + list.map((r, i) => {
+          const key = r.n; if (key !== prev) { rank = i + 1; prev = key; }
           let chain = []; try { chain = JSON.parse(r.chain); } catch { /* なし */ }
-          return `<div class="admrow"><div class="admtop"><b>${rank}位</b><span class="nm">${esc(r.name)}</span><span class="sc">${mode === '1' ? r.n + '語' : (r.rest === 0 ? '使い切り' : 'のこり' + r.rest + '字') + '(' + r.n + '語)'}</span><small>${hhmm(r.created)} ・ …${esc(r.device.slice(-4))}</small></div>
+          return `<div class="admrow"><div class="admtop"><b>${rank}位</b><span class="nm">${esc(r.name)}</span><span class="sc">${mode === '1' ? r.n + '語' : r.n + '語で使い切り'}</span><small>${hhmm(r.created)} ・ …${esc(r.device.slice(-4))}</small></div>
             <div class="admchain">${chain.map(w => esc(w)).join(' → ')}</div>
             <button type="button" class="btn ghost admdel" data-day="${r.day}" data-prompt="${esc(r.prompt)}" data-mode="${r.mode}" data-device="${esc(r.device)}">この記録を消す</button></div>`;
         }).join('');
