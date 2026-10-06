@@ -2,10 +2,10 @@
 
 使った文字は、二度と使えない。お題の言葉で消えた文字を避けながら、しりとりをどこまでつなげられるか。
 
-- `index.html` … LP(トップ)。今日のお題を表示し、`play.html` へ誘導する
-- `play.html` … ゲーム本体
+- `index.html` … アプリ本体。タイトル → ゲーム → 結果の3画面(遊び方・ランキング・設定は下から出るシート)
   - **節約(ふつう)**: できるだけ多くの言葉をつなぐ。語数で称号がつく
-  - **ハード・使い切り**: 50音をぜんぶ使い切れたら成功(語数は結果に出すだけ)
+  - **ハード**: 50音をぜんぶ使い切れたら成功(語数は結果に出すだけ)
+- `play.html` … 以前のURL用。`index.html` へ移すだけ
 - `api/` … ランキングAPI(Cloudflare Workers + D1)。送られた「つないだ言葉の列」を、お題・ルール・辞書で検証してから記録する
 - `og.png` … 共有時の画像(`tools/og.html` を画面に書き出して作る)
 
@@ -32,6 +32,6 @@ SudachiDict (Works Applications, Apache License 2.0)。公開時は帰属表示�
 ## ランキングAPI(`api/`)
 - 1日・1モード・1端末につき1件。節約は語数が多い方を残す。同じ語数なら早く記録した方が上
 - 辞書は、秘密の値(`DICT_SALT`)を混ぜたハッシュ(`api/dict.bin`)で持つ。`python tools/build_dict_bin.py` で作る。`DICT_SALT` と `ADMIN_TOKEN` は `api/.dev.vars`(リポジトリに入れない)と `wrangler secret put` に置く
-- 手元で動かす: `wrangler d1 migrations apply shiritori --local -c api/wrangler.toml` → `wrangler dev -c api/wrangler.toml`。画面は `?api=http://127.0.0.1:8787` を付けて開く
+- 手元で動かす: `wrangler d1 migrations apply shiritori --local -c api/wrangler.toml` → `wrangler dev -c api/wrangler.toml`。画面は `?api=http://127.0.0.1:8787` を付けて開く。`?dev` を付けると、設定に開発用(辞書の範囲・お題の切り替え)が出る
 - 公開: `wrangler deploy -c api/wrangler.toml`
 - 管理: `GET /api/v1/admin/list?day=` と `POST /api/v1/admin/delete`(ヘッダ `x-admin-token`)。不正な記録はここで消す
