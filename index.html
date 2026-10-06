@@ -368,7 +368,7 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
     const p = PROMPTS[st.pi], r = st.result;
     const head = `使い切りしりとり ${dateLabel()}\nお題「${p.word}」→「${p.link}」`;
     const body = st.mode === 2
-      ? (r.why === 'clear' ? `② 最少手数: ${r.n}語で使い切り!` : r.why === 'giveup' ? `② 最少手数: 降参…(残り${r.rest}字)` : `② 最少手数: 使い切れず…(残り${r.rest}字)`)
+      ? (r.why === 'clear' ? `② 使い切り: 成功! (${r.n}語)` : r.why === 'giveup' ? `② 使い切り: 降参…(残り${r.rest}字)` : `② 使い切り: 失敗…(残り${r.rest}字)`)
       : `① 節約: ${r.n}語つなげた(残り${r.rest}字)`;
     return `${head}\n${body}\n${location.origin}${location.pathname}`;
   }
@@ -420,8 +420,7 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
       const sub = st.mode === 2
         ? (r.why === 'clear' ? `${r.n}語で、すべての文字を使い切りました。` : `使い切れませんでした(残り${r.rest}字)。`)
         : `${r.n}語つなげました(残り${r.rest}字)。`;
-      const ex = (st.mode === 2 && r.why !== 'clear' && p.ex)
-        ? `<details open><summary>こんな解があります(${p.ex.length}語)</summary><p style="margin:6px 0 0">${p.word} → ${p.ex.join(' → ')}</p></details>` : '';
+      const ex = '';
       result = `<section class="result"><h2>${head}</h2><p style="margin:0">${sub}</p>${ex}<pre id="share"></pre>
         <div class="ctrl"><button class="btn" id="shareBtn" type="button">結果を共有</button><button class="btn ghost" id="again" type="button">もう一度</button></div>
         <p class="msg ok" id="smsg" role="status"></p></section>`;
@@ -442,11 +441,11 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
         <p class="lab">今日のお題 ・ この言葉の文字は、最初から使えません</p>
         <p class="w" aria-label="${p.word}">${[...p.word].map(c => `<span>${c}</span>`).join('')}</p>
         <p class="go"><span class="t">最初は「</span><b>${p.link}</b><span class="t">」から始めます</span></p>
-        <p class="ref">参考: ソルバーは ${p.ref} 語で使い切りを確認</p>
+        <p class="ref">使い切れる言葉の組み合わせがあることは、確認済みです</p>
       </section>
       <div class="tabs" role="group" aria-label="部門">
         <button type="button" data-m="1" aria-pressed="${mode1}">① 節約<br><small>できるだけ多くつなぐ</small></button>
-        <button type="button" data-m="2" aria-pressed="${!mode1}">② 最少手数<br><small>少ない語数で使い切る</small></button>
+        <button type="button" data-m="2" aria-pressed="${!mode1}">② 使い切り<br><small>全部の文字を使い切る</small></button>
       </div>
       <div class="stat"><span><b>${st.chain.length}</b> 語</span><span>残り <b>${left()}</b> 字</span></div>
       <div class="board" aria-label="50音表">${cells}</div>
@@ -457,7 +456,7 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
       ${chain}
       ${st.done ? '' : `<p class="goal">${mode1
         ? '終わり: 続けられる言葉がなくなるか、「ここで終わる」を押したとき。つないだ語数が記録です。'
-        : '終わり: 残りの文字をぜんぶ使い切ったとき。無理だと思ったら「降参」できます。'}</p>`}
+        : '終わり: 残りの文字をぜんぶ使い切れば成功です。無理だと思ったら「降参」できます。'}</p>`}
       <div class="ctrl">
         <button class="btn ghost" id="undo" type="button" ${st.chain.length ? '' : 'disabled'}>1つ戻す</button>
         <button class="btn ghost" id="reset" type="button">はじめから</button>
@@ -476,7 +475,7 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
         <li>濁音・半濁音は清音、小さい字は大きい字と同じ文字として数えます(「が」は「か」、「っ」は「つ」)。長音「ー」は消えず、次は直前の文字の母音から始めます。</li>
         <li>「ん」で終わると続けられません。②では、使い切る最後の1語だけ「ん」で終われます。</li>
         <li>① 節約: 続けられなくなるまで、できるだけ多くの言葉をつなぐ。続けられる言葉がなくなるか、「ここで終わる」で終了です。</li>
-        <li>② 最少手数: 少ない語数で全部の文字を使い切る。使い切ると終了です。詰んだら「1つ戻す」か「降参」。降参すると、解の例が見られます。</li></ul></details>
+        <li>② 使い切り: 全部の文字を使い切れたら成功です。使った語数は、結果に出るだけです。詰んだら「1つ戻す」か「降参」。</li></ul></details>
       <details><summary>試作用の設定</summary>
         <div class="set"><label for="dsel">辞書の範囲</label>
           <select id="dsel"><option value="a">普通名詞のみ</option><option value="b">+地名・固有名詞</option><option value="c">すべて(人名も)</option></select></div>

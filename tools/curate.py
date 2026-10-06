@@ -48,7 +48,7 @@ for c in CANDS:
     if sol is None:
         print(f'  解なし: {c}')
         continue
-    ok.append({'word': c, 'link': KANA[link0], 'left': 45 - popcount(used0), 'ref': len(sol), 'ex': [w[2] for w in sol]})
+    ok.append({'word': c, 'link': KANA[link0], 'left': 45 - popcount(used0), 'ref': len(sol)})
     print(f'  OK {c} → {KANA[link0]} (残り{45 - popcount(used0)}) 目安 {len(sol)}語')
     sys.stdout.flush()
 
