@@ -52,6 +52,7 @@ h1 { margin: 0; font-size: 20px; letter-spacing: .04em; }
 
 .stat { display: flex; justify-content: space-between; align-items: baseline; margin: 0 2px 8px; color: var(--sub); font-size: 14px; }
 .stat b { color: var(--ink); font-size: 22px; }
+.goal { margin: 0 2px 10px; font-size: 13px; color: var(--sub); }
 .chain { margin: 0 0 12px; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
 .chain li { padding: 2px 10px; background: var(--card); border: 1px solid var(--line); border-radius: 999px; font-size: 15px; }
 .chain li i { font-style: normal; color: var(--sub); }
@@ -109,7 +110,9 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
   const VOWEL = {};
   [['あかさたなはまやらわ', 'あ'], ['いきしちにひみり', 'い'], ['うくすつぬふむゆる', 'う'], ['えけせてねへめれ', 'え'], ['おこそとのほもよろ', 'お']]
     .forEach(([row, v]) => [...row].forEach(c => { VOWEL[c] = v; }));
-  const LAYOUT = ['あかさたなはまやらわ', 'いきしちにひみ　り　', 'うくすつぬふむゆる　', 'えけせてねへめ　れ　', 'おこそとのほもよろん'];
+  // 50音表は、教科書と同じく右から左へ あ行・か行… の並び(上から あ段・い段…)
+  const LAYOUT = ['あかさたなはまやらわ', 'いきしちにひみ　り　', 'うくすつぬふむゆる　', 'えけせてねへめ　れ　', 'おこそとのほもよろん']
+    .map(row => [...row].reverse().join(''));
   const TOTAL = KANA.length; // 45
 
   const toHira = s => s.normalize('NFKC').replace(/[\s　]/g, '').replace(/[ァ-ヶ]/g, c => String.fromCharCode(c.charCodeAt(0) - 0x60));
@@ -130,6 +133,7 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
     }
     const start = units[0];
     const cons = units.slice(1).filter(u => u !== 'ー');
+    if (cons.length < 2) return { err: 'short' }; // 長音は数えず、3文字以上(= 消える文字が2つ以上)
     let end;
     if (units[units.length - 1] === 'ー') {
       const prev = units.filter(u => u !== 'ー').pop();
@@ -212,7 +216,7 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
   // ---- 入力の検証と反映 ----
   const MSG = {
     nonkana: 'ひらがな(カタカナ)で入力してください。',
-    short: '3文字以上の言葉にしてください。',
+    short: '長音「ー」を除いて、3文字以上の言葉にしてください。',
     wo: '「を」は使えません。',
     longn: '「ん」のあとの長音は使えません。',
   };
@@ -267,7 +271,7 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
     const p = PROMPTS[st.pi], r = st.result;
     const head = `使い切りしりとり ${dateLabel()}\nお題「${p.word}」→「${p.link}」`;
     const body = st.mode === 2
-      ? (r.why === 'clear' ? `② 最少手数: ${r.n}語で使い切り!` : `② 最少手数: 使い切れず…(残り${r.rest}字)`)
+      ? (r.why === 'clear' ? `② 最少手数: ${r.n}語で使い切り!` : r.why === 'giveup' ? `② 最少手数: 降参…(残り${r.rest}字)` : `② 最少手数: 使い切れず…(残り${r.rest}字)`)
       : `① 節約: ${r.n}語つなげた(残り${r.rest}字)`;
     return `${head}\n${body}\n${location.origin}${location.pathname}`;
   }
@@ -286,11 +290,13 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
     let result = '';
     if (st.done) {
       const r = st.result;
-      const head = r.why === 'clear' ? '使い切り!' : mode1 ? 'ここまで!' : '終了';
+      const head = r.why === 'clear' ? '使い切り!' : r.why === 'giveup' ? '降参' : mode1 ? 'ここまで!' : '終了';
       const sub = st.mode === 2
         ? (r.why === 'clear' ? `${r.n}語で、すべての文字を使い切りました。` : `使い切れませんでした(残り${r.rest}字)。`)
         : `${r.n}語つなげました(残り${r.rest}字)。`;
-      result = `<section class="result"><h2>${head}</h2><p style="margin:0">${sub}</p><pre id="share"></pre>
+      const ex = (st.mode === 2 && r.why !== 'clear' && p.ex)
+        ? `<details open><summary>こんな解があります(${p.ex.length}語)</summary><p style="margin:6px 0 0">${p.word} → ${p.ex.join(' → ')}</p></details>` : '';
+      result = `<section class="result"><h2>${head}</h2><p style="margin:0">${sub}</p>${ex}<pre id="share"></pre>
         <div class="ctrl"><button class="btn" id="shareBtn" type="button">結果を共有</button><button class="btn ghost" id="again" type="button">もう一度</button></div>
         <p class="msg ok" id="smsg" role="status"></p></section>`;
     }
@@ -307,6 +313,9 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
       </div>
       <div class="board" aria-label="50音表">${cells}</div>
       <div class="stat"><span><b>${st.chain.length}</b> 語</span><span>残り <b>${left()}</b> 字</span></div>
+      ${st.done ? '' : `<p class="goal">${mode1
+        ? '終わり: 続けられる言葉がなくなるか、「ここで終わる」を押したとき。つないだ語数が記録です。'
+        : '終わり: 残りの文字をぜんぶ使い切ったとき。無理だと思ったら「降参」できます。'}</p>`}
       ${chain}
       ${st.done ? '' : `<form id="f" autocomplete="off">
         <label class="sr" for="w" style="position:absolute;left:-9999px">言葉</label>
@@ -316,16 +325,17 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
       <div class="ctrl">
         <button class="btn ghost" id="undo" type="button" ${st.chain.length ? '' : 'disabled'}>1つ戻す</button>
         <button class="btn ghost" id="reset" type="button">はじめから</button>
-        ${mode1 && !st.done && st.chain.length ? '<button class="btn ghost" id="stop" type="button">ここで終わる</button>' : ''}
+        ${st.done ? '' : `<button class="btn ghost" id="stop" type="button">${mode1 ? 'ここで終わる' : '降参'}</button>`}
       </div>
       ${result}
       <details><summary>遊び方</summary><ul>
         <li>お題の言葉の文字は、最初から消えています。「<b>${p.link}</b>」から始まる言葉を出してしりとりをつなぎます。</li>
         <li>言葉の<b>2文字目以降</b>が消えます。使った文字は、二度と使えません(同じ言葉の中でも1回まで)。</li>
-        <li>3文字以上の言葉だけ使えます。固有名詞も辞書にあれば使えます。「を」は使えません。</li>
+        <li>長音「ー」を除いて3文字以上の言葉だけ使えます(「リール」は2文字扱いなので使えません)。固有名詞も辞書にあれば使えます。「を」は使えません。</li>
         <li>濁音・半濁音は清音、小さい字は大きい字と同じ文字として数えます(「が」は「か」、「っ」は「つ」)。長音「ー」は消えず、次は直前の文字の母音から始めます。</li>
         <li>「ん」で終わると続けられません。②では、使い切る最後の1語だけ「ん」で終われます。</li>
-        <li>① 節約: 詰むまで、できるだけ多くの言葉をつなぐ。 ② 最少手数: 少ない語数で全部の文字を使い切る。</li></ul></details>
+        <li>① 節約: 続けられなくなるまで、できるだけ多くの言葉をつなぐ。続けられる言葉がなくなるか、「ここで終わる」で終了です。</li>
+        <li>② 最少手数: 少ない語数で全部の文字を使い切る。使い切ると終了です。詰んだら「1つ戻す」か「降参」。降参すると、解の例が見られます。</li></ul></details>
       <details><summary>試作用の設定</summary>
         <div class="set"><label for="dsel">辞書の範囲</label>
           <select id="dsel"><option value="a">普通名詞のみ</option><option value="b">+地名・固有名詞</option><option value="c">すべて(人名も)</option></select></div>
@@ -341,7 +351,11 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
     }
     document.querySelectorAll('.tabs button').forEach(b => { b.onclick = () => { settings.mode = +b.dataset.m; saveSettings(); restore(); render(); }; });
     $('#undo').onclick = undo; $('#reset').onclick = reset;
-    const stop = $('#stop'); if (stop) stop.onclick = () => { finish('end'); persist(); render(); };
+    const stop = $('#stop');
+    if (stop) stop.onclick = () => {
+      if (st.mode === 2 && !confirm('降参しますか？')) return;
+      finish(st.mode === 2 ? 'giveup' : 'end'); persist(); render();
+    };
     $('#dsel').onchange = e => { settings.dict = e.target.value; saveSettings(); st.msg = ''; render(); };
     const go = d => { settings.offset += d; saveSettings(); restore(); render(); };
     $('#prev').onclick = () => go(-1); $('#next').onclick = () => go(1);
