@@ -80,6 +80,8 @@ details ul { margin: 8px 0 0; padding-left: 1.2em; }
 details li { margin-bottom: 4px; }
 .set { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 10px; }
 select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 0 8px; }
+.credit { margin: 24px 0 0; font-size: 12px; color: var(--sub); text-align: center; }
+.credit a { color: inherit; }
 .loading { text-align: center; color: var(--sub); padding: 40px 0; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
@@ -88,6 +90,7 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
 <div class="wrap">
   <div class="top"><h1>使い切りしりとり</h1><small id="date"></small></div>
   <div id="app"><p class="loading">辞書を読み込んでいます…</p></div>
+  <p class="credit">辞書: <a href="https://github.com/WorksApplications/SudachiDict">SudachiDict</a> (Works Applications, Apache License 2.0) をもとに加工</p>
 </div>
 <script>
 (async () => {
