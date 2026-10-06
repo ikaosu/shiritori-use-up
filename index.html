@@ -227,6 +227,17 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
 .sheet-h b { font: 800 20px/1.4 var(--serif); }
 .sheet-h button { width: 40px; height: 40px; font-size: 26px; line-height: 1; color: var(--ink); background: transparent; border: 0; cursor: pointer; }
 .sheet h3 { margin: 14px 0 6px; font: 800 16px/1.4 var(--serif); }
+
+/* 管理者画面(#admin) */
+.adm h2 { margin: 6px 0 12px; font: 800 22px/1.4 var(--serif); }
+.adm h3 { margin: 18px 0 8px; font: 800 16px/1.4 var(--serif); } .adm h3 small { font: 500 12px/1 system-ui, sans-serif; color: var(--sub); }
+.admday { display: flex; align-items: center; justify-content: center; gap: 14px; margin: 4px 0 6px; } .admday b { font: 800 22px/1 var(--serif); min-width: 5em; text-align: center; }
+.admrow { margin-bottom: 10px; padding: 10px 12px; background: var(--paper); border: 1px solid var(--edge); border-bottom-width: 3px; border-radius: 12px; }
+.admtop { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; align-items: baseline; }
+.admtop b { font: 800 16px/1.4 var(--serif); color: var(--accent); } .admtop .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
+.admtop .sc { font: 800 16px/1.4 var(--serif); } .admtop small { grid-column: 1 / -1; color: var(--sub); font-size: 11px; }
+.admchain { margin: 6px 0 8px; font: 600 15px/1.7 var(--serif); word-break: break-all; }
+.admdel { min-height: 36px; padding: 0 12px; font-size: 13px; color: var(--accent); }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 
 /* ===== 画面: タイトル → ゲーム → 結果 ===== */
@@ -720,6 +731,7 @@ body { padding-top: env(safe-area-inset-top); }
   }
 
   function render(shake) {
+    if (screen === 'admin') return renderAdmin();
     if (screen === 'play' && st.done) screen = 'result';
     if (screen === 'title') return renderTitle();
     if (screen === 'result') return renderResult();
@@ -841,6 +853,70 @@ body { padding-top: env(safe-area-inset-top); }
     };
     loadRank();
   }
+
+  // ---- 管理者画面(#admin): みんなの解答を見る・不正な記録を消す ----
+  const admToken = () => { try { return sessionStorage.getItem('su2:adm') || ''; } catch { return ''; } };
+  async function admApi(path, opt = {}) {
+    const r = await fetch(`${API}/api/v1/admin${path}`, { ...opt, headers: { 'x-admin-token': admToken(), 'content-type': 'application/json' } });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw Object.assign(new Error(j.error || String(r.status)), { status: r.status });
+    return j;
+  }
+  const dayLabel = d => { const t = new Date(d * 86400e3); return `${t.getUTCMonth() + 1}/${t.getUTCDate()}`; };
+  const hhmm = ms => { const t = new Date(ms + 9 * 3600e3); return `${String(t.getUTCHours()).padStart(2, '0')}:${String(t.getUTCMinutes()).padStart(2, '0')}`; };
+  const dispOf = w => (PROMPTS.find(x => x.word === w) || {}).disp || w;
+  let admDay = null;
+
+  async function renderAdmin() {
+    if (!admToken()) {
+      app.innerHTML = `<div class="adm"><h2>管理者</h2>
+        <form id="admF" class="nameform"><input id="admT" type="password" placeholder="合言葉" autocomplete="off"><button class="btn ghost" type="submit">開く</button></form>
+        <p class="note" id="admMsg"></p><p class="note"><a href="./">← タイトルへ</a></p></div>`;
+      $('#admF').onsubmit = e => { e.preventDefault(); try { sessionStorage.setItem('su2:adm', $('#admT').value.trim()); } catch { /* なし */ } renderAdmin(); };
+      return;
+    }
+    app.innerHTML = '<div class="adm"><p class="note">読み込み中…</p></div>';
+    try {
+      const { today, days } = await admApi('/days');
+      const dayList = [...new Set([today, ...days.map(x => x.day)])].sort((a, b) => b - a);
+      if (admDay === null || !dayList.includes(admDay)) admDay = today;
+      const { rows } = await admApi(`/list?day=${admDay}`);
+      const groups = new Map();
+      for (const r of rows) { const k = `${r.prompt}|${r.mode}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); }
+      const body = [...groups.entries()].map(([k, list]) => {
+        const [prompt, mode] = k.split('|');
+        let rank = 0, prev = null;
+        return `<h3>${esc(dispOf(prompt))} ・ ${mode === '1' ? '節約' : 'ハード'} <small>${list.length}件</small></h3>` + list.map((r, i) => {
+          if (r.n !== prev) { rank = i + 1; prev = r.n; }
+          let chain = []; try { chain = JSON.parse(r.chain); } catch { /* なし */ }
+          return `<div class="admrow"><div class="admtop"><b>${mode === '1' ? rank + '位' : '成功'}</b><span class="nm">${esc(r.name)}</span><span class="sc">${r.n}語</span><small>${hhmm(r.created)} ・ …${esc(r.device.slice(-4))}</small></div>
+            <div class="admchain">${chain.map(w => esc(w)).join(' → ')}</div>
+            <button type="button" class="btn ghost admdel" data-day="${r.day}" data-prompt="${esc(r.prompt)}" data-mode="${r.mode}" data-device="${esc(r.device)}">この記録を消す</button></div>`;
+        }).join('');
+      }).join('') || '<p class="note">この日の記録は、まだありません。</p>';
+      app.innerHTML = `<div class="adm"><div class="gbar"><a class="btn ghost gb" href="./">← タイトル</a><span class="gmode">管理者</span><button class="btn ghost gb" id="admOut" type="button">ログアウト</button></div>
+        <div class="admday"><button class="btn ghost" id="admPrev" type="button" ${dayList.indexOf(admDay) >= dayList.length - 1 ? 'disabled' : ''}>←</button>
+          <b>${dayLabel(admDay)}${admDay === today ? '(今日)' : ''}</b>
+          <button class="btn ghost" id="admNext" type="button" ${dayList.indexOf(admDay) <= 0 ? 'disabled' : ''}>→</button></div>
+        ${body}</div>`;
+      $('#admOut').onclick = () => { try { sessionStorage.removeItem('su2:adm'); } catch { /* なし */ } renderAdmin(); };
+      $('#admPrev').onclick = () => { admDay = dayList[dayList.indexOf(admDay) + 1]; renderAdmin(); };
+      $('#admNext').onclick = () => { admDay = dayList[dayList.indexOf(admDay) - 1]; renderAdmin(); };
+      document.querySelectorAll('.admdel').forEach(b => {
+        b.onclick = async () => {
+          if (!confirm('この記録を消しますか？(元に戻せません)')) return;
+          try { await admApi('/delete', { method: 'POST', body: JSON.stringify({ day: +b.dataset.day, prompt: b.dataset.prompt, mode: +b.dataset.mode, device: b.dataset.device }) }); } catch { /* 一覧を読み直して確かめる */ }
+          renderAdmin();
+        };
+      });
+    } catch (e) {
+      if (e.status === 403) { try { sessionStorage.removeItem('su2:adm'); } catch { /* なし */ } renderAdmin(); setTimeout(() => { const m = $('#admMsg'); if (m) m.textContent = '合言葉が違います。'; }, 0); return; }
+      app.innerHTML = '<div class="adm"><p class="note">読み込めませんでした。</p><button class="btn ghost" id="admRetry" type="button">もう一度</button></div>';
+      $('#admRetry').onclick = renderAdmin;
+    }
+  }
+  addEventListener('hashchange', () => { if (location.hash === '#admin') { screen = 'admin'; render(); } });
+  if (location.hash === '#admin') screen = 'admin';
 
   restore(); render();
   window.__su = { get st() { return st; }, PROMPTS, settings, go, get screen() { return screen; } }; // 検証用

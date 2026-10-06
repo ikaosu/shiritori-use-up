@@ -34,4 +34,4 @@ SudachiDict (Works Applications, Apache License 2.0)。公開時は帰属表示�
 - 辞書は、秘密の値(`DICT_SALT`)を混ぜたハッシュ(`api/dict.bin`)で持つ。`python tools/build_dict_bin.py` で作る。`DICT_SALT` と `ADMIN_TOKEN` は `api/.dev.vars`(リポジトリに入れない)と `wrangler secret put` に置く
 - 手元で動かす: `wrangler d1 migrations apply shiritori --local -c api/wrangler.toml` → `wrangler dev -c api/wrangler.toml`。画面は `?api=http://127.0.0.1:8787` を付けて開く。`?dev` を付けると、設定に開発用(辞書の範囲・お題の切り替え)が出る
 - 公開: `wrangler deploy -c api/wrangler.toml`
-- 管理: `GET /api/v1/admin/list?day=` と `POST /api/v1/admin/delete`(ヘッダ `x-admin-token`)。不正な記録はここで消す
+- 管理: 画面は `https://ikaosu.github.io/shiritori-use-up/#admin`(合言葉を入れると、日ごと・お題ごと・モードごとに、みんなの解答が見られて、記録を消せる)。API は `GET /api/v1/admin/days`・`/admin/list?day=`・`POST /admin/delete`(ヘッダ `x-admin-token`)

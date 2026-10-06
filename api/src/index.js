@@ -173,6 +173,10 @@ export default {
 
       if (url.pathname.startsWith('/api/v1/admin/')) {
         if (!env.ADMIN_TOKEN || req.headers.get('x-admin-token') !== env.ADMIN_TOKEN) return json({ error: 'forbidden' }, 403, cors);
+        if (url.pathname === '/api/v1/admin/days') {
+          const { results } = await env.DB.prepare('SELECT day, prompt, COUNT(*) AS c FROM scores GROUP BY day, prompt ORDER BY day DESC, prompt LIMIT 90').all();
+          return json({ today: day, days: results }, 200, cors);
+        }
         if (url.pathname === '/api/v1/admin/list') {
           const d = +(url.searchParams.get('day') || day);
           const { results } = await env.DB.prepare('SELECT day, prompt, mode, device, name, n, chain, created FROM scores WHERE day = ? ORDER BY prompt, mode, n DESC, created').bind(d).all();
@@ -180,7 +184,10 @@ export default {
         }
         if (url.pathname === '/api/v1/admin/delete' && req.method === 'POST') {
           const b = await req.json();
-          const r = await env.DB.prepare('DELETE FROM scores WHERE day = ? AND mode = ? AND device = ?').bind(+b.day, +b.mode, String(b.device)).run();
+          // お題(prompt)を指定したときは、そのお題の記録だけを消す
+          const r = b.prompt
+            ? await env.DB.prepare('DELETE FROM scores WHERE day = ? AND prompt = ? AND mode = ? AND device = ?').bind(+b.day, String(b.prompt), +b.mode, String(b.device)).run()
+            : await env.DB.prepare('DELETE FROM scores WHERE day = ? AND mode = ? AND device = ?').bind(+b.day, +b.mode, String(b.device)).run();
           return json({ ok: true, changes: r.meta.changes }, 200, cors);
         }
       }
