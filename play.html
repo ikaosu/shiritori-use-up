@@ -66,11 +66,11 @@ h1 { margin: 0; display: flex; align-items: center; gap: 10px; font: 800 22px/1.
 .stat b { color: var(--ink); font: 800 32px/1 var(--serif); }
 
 /* 50音表(緑のフェルトの盆に、麻雀牌のようなタイル) */
-.board { display: grid; grid-template-columns: repeat(10, 1fr); gap: 7px 5px; padding: 12px 9px 14px; margin: 0 0 12px; border-radius: 20px;
+.board { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 7px 5px; padding: 12px 9px 14px; margin: 0 0 12px; border-radius: 20px;
   background: radial-gradient(120% 90% at 50% 0%, #37856d 0%, var(--felt) 55%, #235a47 100%);
   border: 7px solid var(--wood);
   box-shadow: inset 0 6px 16px rgba(0,0,0,.5), 0 12px 20px -8px rgba(50,30,10,.65), 0 0 0 1px #4d331e; }
-.cell { appearance: none; -webkit-appearance: none; margin: 0; padding: 0; display: grid; place-items: center; aspect-ratio: 1 / 1.12; border-radius: 7px; color: var(--ink);
+.cell { appearance: none; -webkit-appearance: none; margin: 0; padding: 0; min-width: 0; overflow: hidden; display: grid; place-items: center; aspect-ratio: 1 / 1.12; border-radius: 7px; color: var(--ink);
   font: 800 clamp(15px, 4.8vw, 21px)/1 var(--serif);
   background: linear-gradient(#fffef8, var(--tile-2)); border: 0; border-bottom: 5px solid var(--side);
   box-shadow: 0 3px 0 #1b4a3a, 0 6px 8px rgba(0,0,0,.35), inset 0 1px 0 #fff;
@@ -100,7 +100,7 @@ h1 { margin: 0; display: flex; align-items: center; gap: 10px; font: 800 22px/1.
   box-shadow: 0 3px 0 #1b4a3a, 0 6px 8px rgba(0,0,0,.4); }
 .rk.link { background: linear-gradient(#ee6549, var(--accent)); color: #fff; border-bottom-color: var(--accent-d); box-shadow: 0 3px 0 #5c1a0e, 0 6px 8px rgba(0,0,0,.4); }
 .rack .hint { color: #ecdcb6; font-size: 13px; margin-left: 4px; }
-.keys { display: grid; grid-template-columns: repeat(5, 1fr) 1.8fr; gap: 6px; }
+.keys { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)) minmax(0, 1.8fr); gap: 6px; }
 .key { min-height: 52px; padding: 0; font: 700 20px/1 var(--serif); color: var(--ink); cursor: pointer;
   background: linear-gradient(#fffdf6, #efe3c6); border: 1px solid var(--edge); border-bottom: 4px solid var(--edge-dark); border-radius: 12px;
   box-shadow: 0 3px 4px rgba(60,40,10,.18); -webkit-tap-highlight-color: transparent; }
@@ -152,8 +152,11 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
 .credit a { color: inherit; }
 
 /* 組み立て欄とキーは、画面の下に固定(小さい画面でもスクロールせずに押せる) */
-.composer { position: sticky; bottom: 0; z-index: 5; margin: 0 -16px 8px; padding: 14px 16px calc(env(safe-area-inset-bottom) + 10px);
-  background: linear-gradient(rgba(221,208,174,0), #ddd0ae 18px); }
+.composer { margin: 0 0 8px; }
+@media (max-width: 600px) and (orientation: portrait) { /* 縦向きのスマホだけ、画面の下に固定する */
+  .composer { position: sticky; bottom: 0; z-index: 5; margin: 0 -16px 8px; padding: 14px 16px calc(env(safe-area-inset-bottom) + 10px);
+    background: linear-gradient(rgba(221,208,174,0), #ddd0ae 18px); }
+}
 .composer .msg { margin: 0 4px 6px; min-height: 1.4em; font-size: 14px; }
 .composer .rack { margin-bottom: 8px; min-height: 66px; padding: 8px 10px; }
 .composer .rk { width: 38px; height: 46px; font-size: 22px; }
