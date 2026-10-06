@@ -46,6 +46,7 @@ a { color: inherit; }
 .brand { display: flex; align-items: center; gap: 10px; font: 800 20px/1.2 var(--serif); letter-spacing: .08em; text-decoration: none; }
 .seal { display: inline-grid; place-items: center; width: 32px; height: 32px; border-radius: 6px; background: var(--accent); color: #fff6e6; font: 800 19px/1 var(--serif);
   transform: rotate(-4deg); box-shadow: 0 2px 0 var(--accent-d), 0 3px 8px rgba(0,0,0,.35); }
+.navs { display: flex; gap: 8px; }
 .bar a.play { font-size: 14px; padding: 6px 14px; border: 1px solid rgba(246,236,210,.5); border-radius: 99px; text-decoration: none; }
 
 /* ヒーロー */
@@ -62,7 +63,8 @@ h1 em { font-style: normal; color: var(--accent); }
 .cta.ghost { background: var(--paper); color: var(--ink); border: 1px solid var(--edge); border-bottom: 4px solid var(--edge-dark); box-shadow: 0 4px 8px rgba(60,40,10,.15); }
 
 /* デモ(牌が伏せられていく) */
-.demo { margin: 30px auto 0; max-width: 460px; }
+.rklink { margin: 12px 0 0; font-size: 14px; } .rklink a { color: var(--accent); font-weight: 700; }
+.demo { margin: 22px auto 0; max-width: 460px; }
 .mini { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 5px 4px; padding: 10px 8px 12px; border-radius: 18px; border: 6px solid var(--wood);
   background: radial-gradient(120% 90% at 50% 0%, #37856d 0%, var(--felt) 55%, #235a47 100%);
   box-shadow: inset 0 6px 16px rgba(0,0,0,.5), 0 14px 22px -10px rgba(50,30,10,.65); }
@@ -137,7 +139,7 @@ footer a { text-decoration: underline; }
 <body>
 <header class="bar"><div class="in">
   <a class="brand" href="./"><span class="seal" aria-hidden="true">節</span>節約しりとり</a>
-  <a class="play" href="play.html">遊ぶ</a>
+  <span class="navs"><a class="play" id="rkNav" href="#rankSec" hidden>ランキング</a><a class="play" href="play.html">遊ぶ</a></span>
 </div></header>
 
 <main>
@@ -147,6 +149,7 @@ footer a { text-decoration: underline; }
       <h1>使った文字は、<br><em>二度と使えない。</em></h1>
       <p class="lead">お題の言葉で消えた文字を避けながら、しりとりをどこまでつなげられる？ 50音を<b>節約</b>する、ひとりしりとり。</p>
       <a class="cta" id="cta1" href="play.html">今日のお題で遊ぶ<small>無料・登録なし・1回1分ほど</small></a>
+      <p class="rklink"><a href="#rankSec" id="rkHero" hidden>今日のランキングを見る ↓</a></p>
 
       <div class="demo" aria-label="遊び方のデモ">
         <div class="mini" id="mini" aria-hidden="true"></div>
@@ -251,6 +254,7 @@ footer a { text-decoration: underline; }
       document.getElementById('rankSub').textContent = d.total ? `今日は ${d.total}人が挑戦しています` : 'まだ誰も記録していません。1番乗りになろう';
       document.getElementById('rankList').innerHTML = d.top.slice(0, 5).map(t => `<li><span class="no">${t.rank}</span><span class="nm">${esc(t.name)}</span><span class="sc">${t.n}語</span></li>`).join('');
       document.getElementById('rankSec').hidden = false;
+      document.getElementById('rkNav').hidden = false; document.getElementById('rkHero').hidden = false;
     } catch { /* ランキングに繋がらなくてもLPは見られる */ }
   })();
 

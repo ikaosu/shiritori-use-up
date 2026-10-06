@@ -46,7 +46,7 @@ h1 { margin: 0; display: flex; align-items: center; gap: 10px; font: 800 22px/1.
   background: radial-gradient(circle at 15% 0%, #355078, transparent 62%), var(--indigo);
   box-shadow: 0 14px 26px -12px rgba(20,30,60,.65), inset 0 0 0 1px rgba(224,190,110,.4); }
 .prompt .lab { margin: 0; font-size: 11px; color: #d9c28c; letter-spacing: .16em; }
-.prompt .w { display: flex; justify-content: center; gap: 6px; margin: 12px 0 12px; }
+.prompt .w { display: flex; justify-content: center; flex: none; gap: 6px; margin: 12px 0 12px; }
 .prompt .w span { flex: 0 1 48px; aspect-ratio: 48 / 56; display: grid; place-items: center; font: 800 clamp(22px, 7vw, 30px)/1 var(--serif);
   color: var(--ink); background: linear-gradient(#fffef8, #f2e8cf); border-radius: 8px; border-bottom: 5px solid var(--side);
   box-shadow: 0 3px 0 #0c1424, 0 7px 10px rgba(0,0,0,.4); }
@@ -166,7 +166,7 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
   h1 { font-size: 18px; } .seal { width: 28px; height: 28px; font-size: 16px; }
   .prompt { display: flex; align-items: center; justify-content: center; gap: 12px; padding: 10px 12px; border-radius: 16px; }
   .prompt .lab, .prompt .ref { display: none; }
-  .prompt .w { margin: 0; gap: 4px; } .prompt .w span { flex: 0 0 34px; font-size: 20px; border-bottom-width: 4px; box-shadow: 0 2px 0 #0c1424, 0 4px 6px rgba(0,0,0,.4); }
+  .prompt .w { margin: 0; gap: 4px; } .prompt .w span { flex: 0 0 34px; width: 34px; height: 40px; aspect-ratio: auto; font-size: 20px; border-bottom-width: 4px; box-shadow: 0 2px 0 #0c1424, 0 4px 6px rgba(0,0,0,.4); }
   .prompt .go { font-size: 13px; white-space: nowrap; } .prompt .go b { width: 30px; height: 30px; font-size: 18px; }
   .prompt .go .t { display: none; } .prompt .go::before { content: '→'; margin-right: 6px; color: #d9c28c; font-size: 18px; vertical-align: middle; }
   .tabs { margin: 10px 0 6px; } .tabs button { min-height: 40px; font-size: 14px; } .tabs button small { display: none; }
@@ -188,7 +188,7 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
 .tutor { margin: 0 0 12px; padding: 12px 14px; font-size: 14px; background: #fffaf0; border: 2px solid var(--gold); border-radius: 14px; box-shadow: 0 6px 12px -8px rgba(120,80,10,.5); }
 .tutor ol { margin: 6px 0 10px; padding-left: 1.3em; } .tutor li { margin-bottom: 3px; }
 .rank-lab { margin: 0; font-size: 12px; color: var(--sub); letter-spacing: .2em; }
-.next { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--edge-dark); font-size: 13px; color: var(--sub); }
+.after { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--edge-dark); font-size: 13px; color: var(--sub); }
 .credit a { text-decoration: underline; }
 
 .rankcard { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--edge-dark); }
@@ -206,13 +206,30 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
 .nameform { display: flex; gap: 8px; margin-top: 4px; }
 .nameform input { flex: 1; min-width: 0; height: 44px; font-size: 16px; }
 .rkp .note { margin: 6px 0 0; }
+
+.rkbtn { padding: 6px 14px; font: 600 14px/1.4 system-ui, sans-serif; color: #f6ecd2; background: transparent; border: 1px solid rgba(246,236,210,.55); border-radius: 99px; cursor: pointer; }
+.rkbtn:active { background: rgba(255,255,255,.12); }
+.sheet { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-end; justify-content: center; background: rgba(15,22,40,.55); }
+.sheet[hidden] { display: none; }
+.sheet-in { width: 100%; max-width: 480px; max-height: 86vh; overflow: auto; padding: 14px 16px calc(env(safe-area-inset-bottom) + 20px);
+  background: var(--paper); border-top: 4px solid var(--gold); border-radius: 20px 20px 0 0; box-shadow: 0 -12px 30px rgba(0,0,0,.35); animation: rise .3s ease-out; }
+.sheet-h { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+.sheet-h b { font: 800 20px/1.4 var(--serif); }
+.sheet-h button { width: 40px; height: 40px; font-size: 26px; line-height: 1; color: var(--ink); background: transparent; border: 0; cursor: pointer; }
+.sheet h3 { margin: 14px 0 6px; font: 800 16px/1.4 var(--serif); }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>
 <div class="wrap">
-  <div class="top"><h1><a class="brand" href="./"><span class="seal" aria-hidden="true">節</span>節約しりとり</a></h1><small id="date"></small></div>
+  <div class="top"><h1><a class="brand" href="./"><span class="seal" aria-hidden="true">節</span>節約しりとり</a></h1><button class="rkbtn" id="rkOpen" type="button">ランキング</button></div>
   <div id="app"><p class="loading">辞書を読み込んでいます…</p></div>
+  <div class="sheet" id="sheet" hidden role="dialog" aria-modal="true" aria-labelledby="sheetT">
+    <div class="sheet-in">
+      <div class="sheet-h"><b id="sheetT">今日のランキング</b><button type="button" id="sheetX" aria-label="閉じる">×</button></div>
+      <div id="sheetBody"></div>
+    </div>
+  </div>
   <p class="credit"><a href="./">← 節約しりとりのトップへ</a><br>辞書: <a href="https://github.com/WorksApplications/SudachiDict">SudachiDict</a> (Works Applications, Apache License 2.0) をもとに加工</p>
 </div>
 <script>
@@ -309,7 +326,7 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
     if (!r.ok) throw Object.assign(new Error(j.error || String(r.status)), { status: r.status, body: j });
     return j;
   }
-  function rankHTML(d, mode, withName) {
+  function rankHTML(d, mode, withName, idp = '') {
     if (mode === 2) {
       return `<p class="myrank">今日の成功者 <b>${d.total}人</b></p>`;
     }
@@ -318,8 +335,8 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
       ? `<ol class="rk-list">${d.top.map(t => `<li class="${t.mine ? 'me' : ''}"><span class="no">${t.rank}</span><span class="nm">${esc(t.name)}</span><span class="sc">${t.n}語</span></li>`).join('')}</ol>`
       : '<p class="note">まだ誰も記録していません。</p>';
     const head = me ? `<p class="myrank"><b>${me.rank}位</b> / ${d.total}人 <small>(同じ語数は同順位)</small></p>` : `<p class="myrank">今日の挑戦者 <b>${d.total}人</b></p>`;
-    const form = (withName && me) ? `<form id="nameForm" class="nameform"><label class="sr" for="nm">ニックネーム</label>
-      <input id="nm" type="text" maxlength="12" placeholder="ニックネーム(任意)" value="${esc(store.get('su2:name') || '')}" autocomplete="nickname"><button class="btn ghost" type="submit">名前を登録</button></form>` : '';
+    const form = (withName && me) ? `<form id="${idp}nameForm" class="nameform"><label class="sr" for="${idp}nm">ニックネーム</label>
+      <input id="${idp}nm" type="text" maxlength="12" placeholder="ニックネーム(任意)" value="${esc(store.get('su2:name') || '')}" autocomplete="nickname"><button class="btn ghost" type="submit">名前を登録</button></form>` : '';
     return head + list + form;
   }
   // 結果画面のランキング(今日のお題で、成功/節約の結果が出たときだけ送る)
@@ -353,13 +370,31 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
       const rt = $('#retry'); if (rt) rt.onclick = loadRank;
     }
   }
-  async function loadPanel() {
-    const box = $('#rkBody');
+  // ヘッダーのボタンから、いつでも開けるランキング
+  async function openSheet() {
+    const sh = $('#sheet'), body = $('#sheetBody');
+    sh.hidden = false; document.body.style.overflow = 'hidden';
+    body.innerHTML = '<p class="note">読み込み中…</p>';
     try {
-      const d = await api(`/ranking?mode=${st.mode}&device=${DEVICE}`);
-      box.innerHTML = rankHTML(d, st.mode, false) + `<p class="note">お題は毎日0時に変わります。ランキングは、今日のお題です。</p>`;
-    } catch { box.innerHTML = '<p class="note">ランキングに接続できませんでした。</p>'; }
+      const [a, b] = await Promise.all([api(`/ranking?mode=1&device=${DEVICE}`), api(`/ranking?mode=2&device=${DEVICE}`)]);
+      body.innerHTML = `<p class="note" style="margin:0 0 6px">お題「${esc(a.prompt)}」・毎日0時に変わります</p><h3>節約</h3>${rankHTML(a, 1, true, 's')}<h3>ハード・使い切り</h3>${rankHTML(b, 2, false)}`;
+      const nf = $('#snameForm');
+      if (nf) nf.onsubmit = async e => {
+        e.preventDefault();
+        const v = $('#snm').value.trim(); store.set('su2:name', v);
+        const saved = store.get(`su1:${PROMPTS[todayIdx()].word}:1`);
+        if (saved && saved.chain && saved.chain.length) {
+          try { await api('/score', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prompt: PROMPTS[todayIdx()].word, mode: 1, chain: saved.chain, device: DEVICE, name: v }) }); } catch { /* 名前だけ保存される */ }
+        }
+        openSheet();
+      };
+    } catch { body.innerHTML = '<p class="note">ランキングに接続できませんでした。</p>'; }
   }
+  const closeSheet = () => { $('#sheet').hidden = true; document.body.style.overflow = ''; };
+  $('#rkOpen').onclick = openSheet;
+  $('#sheetX').onclick = closeSheet;
+  $('#sheet').onclick = e => { if (e.target.id === 'sheet') closeSheet(); };
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
 
   let st; // 現在の盤面
   const pIndex = () => (((jstDay() - DAY0 + settings.offset) % PROMPTS.length) + PROMPTS.length) % PROMPTS.length;
@@ -373,12 +408,12 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
     const pi = pIndex(), p = PROMPTS[pi];
     const used = new Array(TOTAL).fill(0); // 0 空き, 1 お題, 2 プレイヤー
     for (const ch of p.word) used[IDX[NORM[ch] || ch]] = 1;
-    return { pi, mode: settings.mode, used, link: p.link, comp: [lastChar(p.word, p.link)], chain: [], done: false, msg: '', msgOk: false };
+    return { pi, mode: settings.mode, used, link: p.link, comp: [p.link], chain: [], done: false, msg: '', msgOk: false };
   }
   function applyWord(r) { // 検証済みの単語を盤面に反映
     const a = analyze(r);
     for (const c of a.cons) st.used[IDX[c]] = 2;
-    st.chain.push(r); st.link = a.end; st.comp = [lastChar(r, a.end)];
+    st.chain.push(r); st.link = a.end; st.comp = [a.end];
     return a;
   }
   function restore() {
@@ -534,7 +569,7 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
         <div class="ctrl"><button class="btn" id="shareBtn" type="button">結果を共有</button><button class="btn ghost" id="again" type="button">もう一度</button></div>
         <p class="msg ok" id="smsg" role="status"></p>
         <div class="rankcard" id="rankCard"></div>
-        <div class="next"><p style="margin:0 0 8px">お題は毎日0時に変わります。</p>
+        <div class="after"><p style="margin:0 0 8px">お題は毎日0時に変わります。</p>
           ${mode1 ? '<button class="btn ghost" id="goto" data-to="2" type="button">ハード(使い切り)に挑戦</button>' : '<button class="btn ghost" id="goto" data-to="1" type="button">節約モードへ</button>'}</div></section>`;
     }
     const tutor = (!st.done && !st.chain.length && !store.get('su2:seen')) ? `<aside class="tutor"><b>はじめての方へ</b>
@@ -579,7 +614,6 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
         <button class="btn ghost" id="reset" type="button">はじめから</button>
         ${st.done ? '' : `<button class="btn ghost" id="stop" type="button">${mode1 ? 'ここで終わる' : '降参'}</button>`}
       </div>
-      <details class="rkp" id="rkp"><summary>今日のランキング</summary><div id="rkBody"><p class="note">読み込み中…</p></div></details>
       ${st.done ? '' : `<details class="kbd" ${fine ? 'open' : ''}><summary>キーボードで入力する</summary>
         <form id="f" autocomplete="off"><label class="sr" for="w">言葉</label>
           <input id="w" type="text" lang="ja" enterkeyhint="send" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="「${st.link}」から始まる言葉">
@@ -587,7 +621,7 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
       ${result}
       <details><summary>遊び方</summary><ul>
         <li>お題の言葉の文字は、最初から消えています。「<b>${p.link}</b>」から始まる言葉を出してしりとりをつなぎます。</li>
-        <li>今日のお題の結果は、ランキングに載ります(ニックネームは任意。送られるのは、つないだ言葉の列だけです)。</li>
+        <li>今日のお題の結果は、ランキングに載ります(右上の「ランキング」からいつでも見られます。ニックネームは任意で、送られるのは、つないだ言葉の列だけです)。</li>
         <li>入力は、50音表の文字をタップして言葉をつくります。「゛」「゜」「小」で濁点・半濁点・小さい字に、「ー」で長音に変えられます。</li>
         <li>言葉の<b>2文字目以降</b>が消えます。使った文字は、二度と使えません(同じ言葉の中でも1回まで)。</li>
         <li>長音「ー」を除いて3文字以上の言葉だけ使えます(「リール」は2文字扱いなので使えません)。固有名詞も辞書にあれば使えます。「を」は使えません。</li>
@@ -622,8 +656,6 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
     $('#dsel').onchange = e => { settings.dict = e.target.value; saveSettings(); st.msg = ''; render(); };
     const go = d => { settings.offset += d; saveSettings(); restore(); render(); };
     $('#prev').onclick = () => go(-1); $('#next').onclick = () => go(1);
-    const rkp = $('#rkp');
-    if (rkp) { rkp.ontoggle = () => { if (rkp.open) loadPanel(); }; }
     if (st.done) loadRank();
     if (st.done) {
       $('#share').textContent = shareText();
@@ -638,7 +670,6 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
     }
   }
 
-  $('#date').textContent = dateLabel();
   restore(); render();
   window.__su = { get st() { return st; }, PROMPTS, settings }; // 検証用
 })();
