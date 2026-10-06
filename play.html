@@ -190,6 +190,22 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
 .rank-lab { margin: 0; font-size: 12px; color: var(--sub); letter-spacing: .2em; }
 .next { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--edge-dark); font-size: 13px; color: var(--sub); }
 .credit a { text-decoration: underline; }
+
+.rankcard { margin-top: 12px; padding-top: 12px; border-top: 1px dashed var(--edge-dark); }
+.myrank { margin: 0 0 8px; font-size: 14px; color: var(--sub); }
+.myrank b { font: 800 26px/1.2 var(--serif); color: var(--accent); }
+.myrank small { font-size: 11px; }
+.rk-list { margin: 0 0 10px; padding: 0; list-style: none; border: 1px solid var(--edge); border-radius: 12px; overflow: hidden; background: rgba(255,255,255,.55); }
+.rk-list li { display: grid; grid-template-columns: 34px 1fr auto; gap: 8px; align-items: center; padding: 6px 12px; font-size: 15px; border-bottom: 1px solid var(--edge); }
+.rk-list li:last-child { border-bottom: 0; }
+.rk-list .no { font: 800 17px/1 var(--serif); color: var(--sub); text-align: center; }
+.rk-list li:nth-child(1) .no { color: var(--gold); } .rk-list li:nth-child(1) { background: rgba(199,154,58,.14); }
+.rk-list .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rk-list .sc { font: 800 16px/1 var(--serif); }
+.rk-list li.me { background: rgba(200,64,42,.12); font-weight: 700; }
+.nameform { display: flex; gap: 8px; margin-top: 4px; }
+.nameform input { flex: 1; min-width: 0; height: 44px; font-size: 16px; }
+.rkp .note { margin: 6px 0 0; }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
 </style>
 </head>
@@ -277,6 +293,73 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
   if (q.has('p')) settings.offset = +q.get('p') - ((jstDay() - DAY0) % PROMPTS.length);
   const saveSettings = () => store.set('su2:settings', settings);
   const maxTag = () => ({ a: 0, b: 2, c: 3 }[settings.dict]);
+
+  // ---- ランキング ----
+  const API_DEFAULT = 'https://shiritori-api.kamatyo199851.workers.dev';
+  const apiQ = new URLSearchParams(location.search).get('api');
+  const API = (apiQ && /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(apiQ)) ? apiQ : API_DEFAULT; // ?api= は手元の試験用
+  const rand = () => (crypto.randomUUID ? crypto.randomUUID() : [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join(''));
+  let DEVICE = store.get('su2:device');
+  if (!DEVICE) { DEVICE = rand(); store.set('su2:device', DEVICE); }
+  const todayIdx = () => (((jstDay() - DAY0) % PROMPTS.length) + PROMPTS.length) % PROMPTS.length;
+  const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  async function api(path, opt) {
+    const r = await fetch(`${API}/api/v1${path}`, opt);
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw Object.assign(new Error(j.error || String(r.status)), { status: r.status, body: j });
+    return j;
+  }
+  function rankHTML(d, mode, withName) {
+    if (mode === 2) {
+      return `<p class="myrank">今日の成功者 <b>${d.total}人</b></p>`;
+    }
+    const me = d.me;
+    const list = d.top.length
+      ? `<ol class="rk-list">${d.top.map(t => `<li class="${t.mine ? 'me' : ''}"><span class="no">${t.rank}</span><span class="nm">${esc(t.name)}</span><span class="sc">${t.n}語</span></li>`).join('')}</ol>`
+      : '<p class="note">まだ誰も記録していません。</p>';
+    const head = me ? `<p class="myrank"><b>${me.rank}位</b> / ${d.total}人 <small>(同じ語数は同順位)</small></p>` : `<p class="myrank">今日の挑戦者 <b>${d.total}人</b></p>`;
+    const form = (withName && me) ? `<form id="nameForm" class="nameform"><label class="sr" for="nm">ニックネーム</label>
+      <input id="nm" type="text" maxlength="12" placeholder="ニックネーム(任意)" value="${esc(store.get('su2:name') || '')}" autocomplete="nickname"><button class="btn ghost" type="submit">名前を登録</button></form>` : '';
+    return head + list + form;
+  }
+  // 結果画面のランキング(今日のお題で、成功/節約の結果が出たときだけ送る)
+  async function loadRank() {
+    const box = $('#rankCard');
+    if (!box) return;
+    if (st.pi !== todayIdx()) { box.innerHTML = '<p class="note">ランキングに載るのは、今日のお題だけです。</p>'; return; }
+    box.innerHTML = '<p class="note">ランキングを読み込んでいます…</p>';
+    const r = st.result, send = !r.sent && (st.mode === 1 || r.why === 'clear');
+    try {
+      let d;
+      if (send) {
+        d = await api('/score', { method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ prompt: PROMPTS[st.pi].word, mode: st.mode, chain: st.chain, device: DEVICE, name: store.get('su2:name') || '' }) });
+        r.sent = true; persist();
+      } else d = await api(`/ranking?mode=${st.mode}&device=${DEVICE}`);
+      const b = $('#rankCard'); if (!b) return;
+      b.innerHTML = rankHTML(d, st.mode, st.mode === 1);
+      const nf = $('#nameForm');
+      if (nf) nf.onsubmit = async e => {
+        e.preventDefault();
+        store.set('su2:name', $('#nm').value.trim());
+        r.sent = false; persist(); loadRank();
+      };
+    } catch (e) {
+      const b = $('#rankCard'); if (!b) return;
+      const why = e.status === 409 ? 'お題が切り替わったため、ランキングには載りません。'
+        : e.status === 422 ? '記録できませんでした(辞書にない言葉が含まれているかもしれません)。'
+        : 'ランキングに接続できませんでした。';
+      b.innerHTML = `<p class="note">${why}</p>` + (e.status ? '' : '<button class="btn ghost" id="retry" type="button">もう一度送る</button>');
+      const rt = $('#retry'); if (rt) rt.onclick = loadRank;
+    }
+  }
+  async function loadPanel() {
+    const box = $('#rkBody');
+    try {
+      const d = await api(`/ranking?mode=${st.mode}&device=${DEVICE}`);
+      box.innerHTML = rankHTML(d, st.mode, false) + `<p class="note">お題は毎日0時に変わります。ランキングは、今日のお題です。</p>`;
+    } catch { box.innerHTML = '<p class="note">ランキングに接続できませんでした。</p>'; }
+  }
 
   let st; // 現在の盤面
   const pIndex = () => (((jstDay() - DAY0 + settings.offset) % PROMPTS.length) + PROMPTS.length) % PROMPTS.length;
@@ -366,7 +449,7 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
   function finish(why) {
     st.done = true;
     const n = st.chain.length, rest = left(), M = maxWords();
-    st.result = { why, n, rest, M };
+    st.result = { why, n, rest, M, sent: false };
     if (st.mode === 1) {
       st.result.rank = rankOf(n, M);
       const bk = `su2:best:${PROMPTS[st.pi].word}`, prev = store.get(bk) || 0;
@@ -450,6 +533,7 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
       result = `<section class="result">${top}<p style="margin:0">${sub}</p><pre id="share"></pre>
         <div class="ctrl"><button class="btn" id="shareBtn" type="button">結果を共有</button><button class="btn ghost" id="again" type="button">もう一度</button></div>
         <p class="msg ok" id="smsg" role="status"></p>
+        <div class="rankcard" id="rankCard"></div>
         <div class="next"><p style="margin:0 0 8px">お題は毎日0時に変わります。</p>
           ${mode1 ? '<button class="btn ghost" id="goto" data-to="2" type="button">ハード(使い切り)に挑戦</button>' : '<button class="btn ghost" id="goto" data-to="1" type="button">節約モードへ</button>'}</div></section>`;
     }
@@ -495,6 +579,7 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
         <button class="btn ghost" id="reset" type="button">はじめから</button>
         ${st.done ? '' : `<button class="btn ghost" id="stop" type="button">${mode1 ? 'ここで終わる' : '降参'}</button>`}
       </div>
+      <details class="rkp" id="rkp"><summary>今日のランキング</summary><div id="rkBody"><p class="note">読み込み中…</p></div></details>
       ${st.done ? '' : `<details class="kbd" ${fine ? 'open' : ''}><summary>キーボードで入力する</summary>
         <form id="f" autocomplete="off"><label class="sr" for="w">言葉</label>
           <input id="w" type="text" lang="ja" enterkeyhint="send" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="「${st.link}」から始まる言葉">
@@ -502,6 +587,7 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
       ${result}
       <details><summary>遊び方</summary><ul>
         <li>お題の言葉の文字は、最初から消えています。「<b>${p.link}</b>」から始まる言葉を出してしりとりをつなぎます。</li>
+        <li>今日のお題の結果は、ランキングに載ります(ニックネームは任意。送られるのは、つないだ言葉の列だけです)。</li>
         <li>入力は、50音表の文字をタップして言葉をつくります。「゛」「゜」「小」で濁点・半濁点・小さい字に、「ー」で長音に変えられます。</li>
         <li>言葉の<b>2文字目以降</b>が消えます。使った文字は、二度と使えません(同じ言葉の中でも1回まで)。</li>
         <li>長音「ー」を除いて3文字以上の言葉だけ使えます(「リール」は2文字扱いなので使えません)。固有名詞も辞書にあれば使えます。「を」は使えません。</li>
@@ -536,6 +622,9 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
     $('#dsel').onchange = e => { settings.dict = e.target.value; saveSettings(); st.msg = ''; render(); };
     const go = d => { settings.offset += d; saveSettings(); restore(); render(); };
     $('#prev').onclick = () => go(-1); $('#next').onclick = () => go(1);
+    const rkp = $('#rkp');
+    if (rkp) { rkp.ontoggle = () => { if (rkp.open) loadPanel(); }; }
+    if (st.done) loadRank();
     if (st.done) {
       $('#share').textContent = shareText();
       $('#again').onclick = () => { store.set(saveKey(), { chain: [], done: false }); restore(); render(); };

@@ -1,0 +1,16 @@
+name = "shiritori-api"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "shiritori"
+database_id = "9c49d0cc-c6b8-47f5-a4dd-a827e0da57c0"
+migrations_dir = "migrations"
+
+# 辞書(ハッシュの並び)をバイト列として取り込む
+[[rules]]
+type = "Data"
+globs = ["**/*.bin"]
+fallthrough = true

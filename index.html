@@ -115,6 +115,15 @@ h2::after { content: ""; display: block; width: 44px; height: 3px; margin: 8px a
   background: var(--up-bg); border-radius: 8px; border-bottom: 5px solid var(--side); box-shadow: 0 3px 0 #0c1424, 0 7px 10px rgba(0,0,0,.4); }
 .today .go { margin: 0 0 16px; }
 .today .go b { display: inline-grid; place-items: center; width: 34px; height: 34px; margin: 0 4px; border-radius: 50%; vertical-align: middle; background: var(--accent); color: #fff; font: 800 20px/1 var(--serif); }
+.rk-list { margin: 0; padding: 0; list-style: none; border: 1px solid var(--edge); border-radius: 14px; overflow: hidden; background: var(--paper); }
+.rk-list:empty { display: none; }
+.rk-list li { display: grid; grid-template-columns: 36px 1fr auto; gap: 8px; align-items: center; padding: 8px 14px; font-size: 16px; border-bottom: 1px solid var(--edge); }
+.rk-list li:last-child { border-bottom: 0; }
+.rk-list .no { font: 800 18px/1 var(--serif); color: var(--sub); text-align: center; }
+.rk-list li:nth-child(1) { background: rgba(199,154,58,.16); } .rk-list li:nth-child(1) .no { color: var(--gold); }
+.rk-list .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rk-list .sc { font: 800 17px/1 var(--serif); }
+[hidden] { display: none !important; }
 details { margin-top: 10px; padding: 12px 16px; background: var(--paper); border: 1px solid var(--edge); border-bottom: 3px solid var(--edge-dark); border-radius: 13px; font-size: 14px; }
 summary { cursor: pointer; font: 700 16px/1.6 var(--serif); min-height: 28px; }
 details p { margin: 6px 0 2px; }
@@ -188,6 +197,13 @@ footer a { text-decoration: underline; }
       </div>
     </section>
 
+    <section id="rankSec" hidden>
+      <h2>今日のランキング</h2>
+      <p class="sub" id="rankSub"></p>
+      <ol class="rk-list" id="rankList"></ol>
+      <p style="text-align:center;margin:14px 0 0"><a class="cta ghost" href="play.html" style="min-width:0;padding:12px 24px;font-size:16px">挑戦して順位を見る</a></p>
+    </section>
+
     <section>
       <h2>よくある質問</h2>
       <div style="margin-top:18px">
@@ -195,7 +211,8 @@ footer a { text-decoration: underline; }
         <details><summary>濁点や小さい字は？</summary><p>濁音・半濁音は清音、小さい字は大きい字と同じ文字として数えます(「が」は「か」、「っ」は「つ」)。長音「ー」は消えず、次は直前の文字の母音から始めます。</p></details>
         <details><summary>「ん」で終わると？</summary><p>しりとりが続けられなくなるので、そこで終わりです。ハードでは、使い切る最後の1語だけ「ん」で終われます。</p></details>
         <details><summary>入力はどうやる？</summary><p>50音表の文字をタップして言葉をつくります。キーボードは開きません。「゛」「゜」「小」「ー」のキーも使えます。</p></details>
-        <details><summary>記録は残る？</summary><p>この端末のブラウザにだけ保存されます。アカウントも広告もありません。</p></details>
+        <details><summary>ランキングはある？</summary><p>毎日のお題ごとに、全国のランキングがあります。送られるのは、ニックネーム(任意)と、つないだ言葉の列だけです。結果はサーバーで検証されます。</p></details>
+        <details><summary>記録は残る？</summary><p>自己ベストなどは、この端末のブラウザに保存されます。アカウントも広告もありません。</p></details>
       </div>
     </section>
 
@@ -220,6 +237,22 @@ footer a { text-decoration: underline; }
   const G = { b: 'たからもの', g1: 'りまき', g2: 'つね', g3: 'すみ' };
   const cls = ch => Object.keys(G).find(k => G[k].includes(ch)) || '';
   document.getElementById('mini').innerHTML = LAYOUT.map(r => [...r].map(ch => ch === '　' ? '<i class="mt e"></i>' : `<i class="mt ${cls(ch)}">${ch}</i>`).join('')).join('');
+
+  // ---- 今日のランキング ----
+  const API_DEFAULT = 'https://shiritori-api.kamatyo199851.workers.dev';
+  const apiQ = new URLSearchParams(location.search).get('api');
+  const API = (apiQ && /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(apiQ)) ? apiQ : API_DEFAULT;
+  const esc = t => String(t).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  (async () => {
+    try {
+      const r = await fetch(`${API}/api/v1/ranking?mode=1`);
+      if (!r.ok) return;
+      const d = await r.json();
+      document.getElementById('rankSub').textContent = d.total ? `今日は ${d.total}人が挑戦しています` : 'まだ誰も記録していません。1番乗りになろう';
+      document.getElementById('rankList').innerHTML = d.top.slice(0, 5).map(t => `<li><span class="no">${t.rank}</span><span class="nm">${esc(t.name)}</span><span class="sc">${t.n}語</span></li>`).join('');
+      document.getElementById('rankSec').hidden = false;
+    } catch { /* ランキングに繋がらなくてもLPは見られる */ }
+  })();
 
   // ---- 今日のお題(ゲームと同じ決め方) ----
   try {
