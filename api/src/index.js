@@ -13,6 +13,7 @@ const NORM = {};
 [...'がぎぐげござじずぜぞだぢづでどばびぶべぼ'].forEach((c, i) => { NORM[c] = 'かきくけこさしすせそたちつてとはひふへほ'[i]; });
 [...'ぱぴぷぺぽ'].forEach((c, i) => { NORM[c] = 'はひふへほ'[i]; });
 [...'ぁぃぅぇぉっゃゅょゎゔ'].forEach((c, i) => { NORM[c] = 'あいうえおつやゆよわう'[i]; });
+const DAKU_RE = /[がぎぐげござじずぜぞだぢづでどばびぶべぼぱぴぷぺぽゔ]/;
 const VOWEL = {};
 [['あかさたなはまやらわ', 'あ'], ['いきしちにひみり', 'い'], ['うくすつぬふむゆる', 'う'], ['えけせてねへめれ', 'え'], ['おこそとのほもよろ', 'お']]
   .forEach(([row, v]) => [...row].forEach(c => { VOWEL[c] = v; }));
@@ -95,6 +96,7 @@ async function validate(env, p, mode, chain, out) {
     const a = analyze(r);
     if (a.err) return `rule:${i}`;
     if (a.start !== link) return `link:${i}`;
+    if (p.ban === 'daku' && DAKU_RE.test(r)) return `ban:${i}`; // 濁音・半濁音を禁止するお題
     const seen = new Set();
     for (const c of a.cons) {
       if (seen.has(c) || used.has(c)) return `used:${i}`;

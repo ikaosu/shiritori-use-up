@@ -248,6 +248,9 @@ i.theory { display: inline-block; margin-left: 4px; padding: 0 8px; font-style: 
 .hist .hd { font: 800 14px/1.2 var(--serif); color: var(--sub); }
 .hist .hn small, .hist .hs small { display: block; font-size: 11px; color: var(--sub); } .hist .hs { text-align: right; font: 800 15px/1.3 var(--serif); }
 
+.ruleline { margin: 8px 0; padding: 3px 12px; border-radius: 999px; background: var(--accent); color: #fff6e6; font-size: 13px; font-weight: 700; text-align: center; }
+.keys .key:disabled { opacity: .35; }
+.prompt .prule { margin: 8px 6px 0; padding: 3px 12px; border-radius: 999px; background: var(--accent); color: #fff6e6; font-size: 13px; font-weight: 700; text-align: center; }
 .prompt .pnote { margin: 8px 6px 0; font-size: 13px; line-height: 1.6; color: #f3dca0; text-align: center; }
 
 .clear-banner { margin: 2px 0 4px; font: 800 18px/1.5 var(--serif); letter-spacing: .2em; color: var(--ok); }
@@ -404,7 +407,8 @@ body { padding-top: env(safe-area-inset-top); }
   const PROMPTS = await promptsRes.json();
   const lines = (await wordsRes.text()).split('\n');
   const dict = new Map();           // 読み -> 種別
-  const sA = [], loA = [], hiA = [], eA = [], tA = [], cA = []; // 続けられる手の探索用
+  const sA = [], loA = [], hiA = [], eA = [], tA = [], cA = [], dA = []; // 続けられる手の探索用(dA: 濁音・半濁音を含む)
+  const DAKU_RE = /[がぎぐげござじずぜぞだぢづでどばびぶべぼぱぴぷぺぽゔ]/;
   for (const line of lines) {
     const k = line.indexOf('\t'); if (k < 0) continue;
     const r = line.slice(0, k), t = +line.slice(k + 1);
@@ -412,6 +416,7 @@ body { padding-top: env(safe-area-inset-top); }
     const a = analyze(r); if (a.err) continue;
     let lo = 0, hi = 0;
     for (const c of a.cons) { const [l, h] = bit(IDX[c]); lo |= l; hi |= h; }
+    dA.push(DAKU_RE.test(r) ? 1 : 0);
     sA.push(IDX[a.start]); loA.push(lo); hiA.push(hi); eA.push(IDX[a.end]); tA.push(t); cA.push(a.cons.length);
   }
 
@@ -632,6 +637,7 @@ body { padding-top: env(safe-area-inset-top); }
   }
   const persist = () => store.set(saveKey(), { chain: st.chain, done: st.done, result: st.result });
   const left = () => st.used.filter(v => v === 0).length;
+  const banDaku = () => PROMPTS[st.pi].ban === 'daku'; // 濁音・半濁音を含む言葉を禁止するお題
 
   // 続けられる手があるか
   function hasMove() {
@@ -639,7 +645,7 @@ body { padding-top: env(safe-area-inset-top); }
     st.used.forEach((v, i) => { if (v === 0) { const [l, h] = bit(i); remLo |= l; remHi |= h; } });
     const link = IDX[st.link], lim = maxTag(), remAll = left();
     for (let i = 0; i < sA.length; i++) {
-      if (sA[i] !== link || tA[i] > lim) continue;
+      if (sA[i] !== link || tA[i] > lim || (banDaku() && dA[i])) continue;
       if ((loA[i] & ~remLo) || (hiA[i] & ~remHi)) continue;
       return true;
     }
@@ -659,6 +665,7 @@ body { padding-top: env(safe-area-inset-top); }
     const a = analyze(r);
     if (a.err) return fail(MSG[a.err]);
     if (a.start !== st.link) return fail(`「${st.link}」から始めてください。`);
+    if (banDaku() && DAKU_RE.test(r)) return fail('このお題では、濁音・半濁音を含む言葉は使えません。');
     const seen = new Set();
     for (const c of a.cons) {
       if (seen.has(c)) return fail(`「${c}」が2回出てきます。同じ言葉の中でも、同じ文字は1回までです。`);
@@ -737,6 +744,7 @@ body { padding-top: env(safe-area-inset-top); }
     if (k === 'back') { if (st.comp.length > 1) { st.comp.pop(); st.msg = ''; render(); } return; }
     if (k === 'long') { if (st.comp[st.comp.length - 1] !== 'ー') { st.comp.push('ー'); st.msg = ''; render(); } return; }
     if (k === 'go') { submit(st.comp.join('')); return; }
+    if (banDaku() && (k === 'daku' || k === 'handaku')) return;
     const i = st.comp.length - 1, r = keyFns[k](st.comp[i]);
     if (r) { st.comp[i] = r; st.msg = ''; render(); }
   }
@@ -761,9 +769,10 @@ body { padding-top: env(safe-area-inset-top); }
     const maxW = big ? (innerHeight <= 760 ? 40 : 46) : 34;
     const tw = Math.max(20, Math.min(maxW, Math.floor((W - (n - 1) * gap) / n)));
     const th = Math.round(tw * 1.18), fs = Math.round(tw * 0.6);
+    const rule = big && p.rule ? `<p class="prule">${esc(p.rule)}</p>` : '';
     return `<section class="prompt${big || long ? ' stack' : ''}">${lab ? `<p class="lab">${lab}</p>` : ''}
       <p class="w" aria-label="${p.disp || p.word}" style="--tw:${tw}px;--th:${th}px;--tf:${fs}px">${chars.map(c => `<span>${c}</span>`).join('')}</p>
-      <p class="go"><span class="t">最初は「</span><b>${p.link}</b><span class="t">」から始めます</span></p>${big && p.note ? `<p class="pnote">${esc(p.note)}</p>` : ''}</section>`;
+      <p class="go"><span class="t">最初は「</span><b>${p.link}</b><span class="t">」から始めます</span></p>${rule}${big && p.note ? `<p class="pnote">${esc(p.note)}</p>` : ''}</section>`;
   }
 
   function render(shake) {
@@ -813,15 +822,15 @@ body { padding-top: env(safe-area-inset-top); }
         <span class="gmode"></span>
         <span class="gcount"><b>${st.chain.length}</b>語 ・ 残り<b>${left()}</b>字</span>
       </div>
-      ${promptHTML(p, '')}
+      ${promptHTML(p, '')}${p.rule ? `<p class="ruleline">${esc(p.rule)}</p>` : ''}
       <div class="board" aria-label="50音表">${cells}</div>
       <div class="composer">
         <p class="msg" id="msg" role="status" aria-live="polite">${st.msg || ''}</p>
         <div class="rack" aria-label="いまの言葉">${st.comp.map((c, i) => `<span class="rk ${i === 0 ? 'link' : ''}">${c}</span>`).join('')}${st.comp.length === 1 ? '<span class="hint">表の文字をタップして、言葉をつくります</span>' : ''}</div>
         <div class="keys">
           <button type="button" class="key" data-k="back" aria-label="1文字消す">⌫</button>
-          <button type="button" class="key" data-k="daku" aria-label="濁点">゛</button>
-          <button type="button" class="key" data-k="handaku" aria-label="半濁点">゜</button>
+          <button type="button" class="key" data-k="daku" aria-label="濁点" ${banDaku() ? 'disabled' : ''}>゛</button>
+          <button type="button" class="key" data-k="handaku" aria-label="半濁点" ${banDaku() ? 'disabled' : ''}>゜</button>
           <button type="button" class="key" data-k="small" aria-label="小さい字">小</button>
           <button type="button" class="key" data-k="long" aria-label="長音">ー</button>
           <button type="button" class="btn go" data-k="go">出す</button>
