@@ -3,7 +3,7 @@
 // 送られてくるのは「つないだ言葉の列」。サーバーが、お題・ルール・辞書をすべて検証してから記録する。
 // 辞書は、秘密の値(DICT_SALT)を混ぜたハッシュ(6バイト)の並びを同梱している(dict.bin)。
 import dictBin from '../dict.bin';
-import prompts from '../../data/prompts.json';
+import staticPrompts from '../../data/prompts.json';
 
 // ---- 文字の決まり(play.html と同じ) ----
 const KANA = 'あいうえおかきくけこさしすせそたちつてとなにぬねのはひふへほまみむめもやゆよらりるれろわん';
@@ -76,9 +76,54 @@ function idxForDay(day, list) {
   return pool[orderOf(Math.floor(k / m), m)[k % m]];
 }
 const jstDay = () => Math.floor((Date.now() + 9 * 3600e3) / 86400e3);
-function today(env) {
+function today(env, list) {
   const day = env && env.DAY_OVERRIDE ? +env.DAY_OVERRIDE : jstDay(); // DAY_OVERRIDE は、手元の試験用(本番には設定しない)
-  return { day, p: prompts[idxForDay(day, prompts)] };
+  return { day, p: list[idxForDay(day, list)] };
+}
+
+// 管理者画面から予約したお題(day_prompts)を、data/prompts.json のお題に重ねる。同じ日に固定のお題があれば、予約が優先(固定の方は day = -1 にして、乱数の対象にもしない)。
+// 画面にも同じ重ね方がある(変えるときは、両方)
+async function loadPrompts(env) {
+  let rows = [];
+  try { rows = (await env.DB.prepare('SELECT day, word, link, disp, note, rule, ban, seal FROM day_prompts ORDER BY day').all()).results; } catch { /* 表がなければ、予約なし */ }
+  const days = new Set(rows.map(r => r.day));
+  const list = staticPrompts.map(p => (p.day !== undefined && days.has(p.day)) ? { ...p, day: -1 } : p);
+  for (const r of rows) {
+    const o = { word: r.word, link: r.link, day: r.day, by: 'admin' };
+    for (const k of ['disp', 'note', 'rule', 'ban', 'seal']) if (r[k]) o[k] = r[k];
+    list.push(o);
+  }
+  return list;
+}
+
+// 管理者が入れた内容を検査して、お題にする。エラーは { err }
+const clean = (s, n) => String(s || '').replace(/[\u0000-\u001f\u007f<>&"']/g, '').trim().slice(0, n);
+function makePrompt(b) {
+  const word = toHira(String(b.word || ''));
+  if (!/^[ぁ-ゖー]{2,20}$/.test(word) || word[0] === 'ー') return { err: 'word' };
+  if (word.includes('を')) return { err: 'wo' };
+  const seal = toHira(String(b.seal || ''));
+  if (seal && !/^[ぁ-ゖ]{1,20}$/.test(seal)) return { err: 'seal' };
+  let link = toHira(String(b.link || ''));
+  if (!link) {
+    const cs = [...word];
+    let c = cs[cs.length - 1];
+    if (c === 'ー') { const prev = cs.filter(x => x !== 'ー').pop(); c = VOWEL[NORM[prev] || prev]; }
+    link = c;
+  }
+  link = NORM[link] || link;
+  if (!(link in IDX) || link === 'ん') return { err: 'link' };
+  const sealed = sealedOf({ word, seal });
+  const left = TOTAL - sealed.size;
+  if (left < 8) return { err: 'size' };
+  const p = { word, link };
+  const disp = clean(b.disp, 20); if (disp && disp !== word) p.disp = disp;
+  const note = clean(b.note, 120); if (note) p.note = note;
+  if (b.ban === 'daku') p.ban = 'daku';
+  const rule = clean(b.rule, 40) || (p.ban ? '濁音・半濁音を含む言葉は使えません' : '');
+  if (rule) p.rule = rule;
+  if (seal) p.seal = seal;
+  return { p, info: { link, sealed: sealed.size, left, M: Math.floor(left / 2), tiles: [...(p.disp || word)].length } };
 }
 
 // ---- 検証 ----
@@ -155,7 +200,8 @@ export default {
     const cors = corsHeaders(req.headers.get('Origin') || '');
     if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
     try {
-      const { day, p } = today(env);
+      const list = await loadPrompts(env);
+      const { day, p } = today(env, list);
       if (url.pathname === '/api/v1/health') return json({ ok: true, day, prompt: p.word }, 200, cors);
 
       if (url.pathname === '/api/v1/ranking' && req.method === 'GET') {
@@ -164,8 +210,13 @@ export default {
         // day を指定すると、過去の日のランキング(その日の公式のお題)を返す
         let d = Math.floor(+url.searchParams.get('day') || day);
         if (!(d >= day - 400 && d <= day)) d = day;
-        const pp = d === day ? p : prompts[idxForDay(d, prompts)];
+        const pp = d === day ? p : list[idxForDay(d, list)];
         return json(await ranking(env, d, pp, mode, DEVICE_RE.test(device) ? device : ''), 200, cors);
+      }
+
+      // 管理者画面から予約したお題(画面が、日ごとのお題を決めるのに使う)
+      if (url.pathname === '/api/v1/prompts' && req.method === 'GET') {
+        return json({ today: day, prompts: list.filter(x => x.by === 'admin').map(({ by, ...x }) => x) }, 200, cors);
       }
 
       // その端末の、これまでの記録
@@ -180,7 +231,7 @@ export default {
              (SELECT COUNT(*) FROM scores t WHERE t.day = s.day AND t.prompt = s.prompt AND t.mode = s.mode AND (s.mode = 1 OR t.rest = 0)) AS total
            FROM scores s WHERE s.device = ? AND (s.mode = 1 OR s.rest = 0) ORDER BY s.day DESC, s.mode LIMIT 60`).bind(device).all();
         const rows = results.map(r => {
-          const pr = prompts.find(x => x.word === r.prompt);
+          const pr = list.find(x => x.word === r.prompt && x.day === r.day) || list.find(x => x.word === r.prompt);
           return { day: r.day, prompt: r.prompt, mode: r.mode, n: r.n, rest: r.mode === 2 ? r.rest : null, rank: r.better + 1, total: r.total, max: r.mode === 1 && !!pr && r.n >= maxWordsOf(pr) };
         });
         return json({ rows }, 200, cors);
@@ -217,6 +268,37 @@ export default {
           const d = +(url.searchParams.get('day') || day);
           const { results } = await env.DB.prepare('SELECT day, prompt, mode, device, name, n, rest, chain, created FROM scores WHERE day = ? ORDER BY prompt, mode, CASE WHEN mode = 1 THEN -n ELSE COALESCE(rest, 999) * 100 + n END, created').bind(d).all();
           return json({ day: d, rows: results }, 200, cors);
+        }
+        // これからのお題の予定(今日から21日分)
+        if (url.pathname === '/api/v1/admin/schedule') {
+          const sched = [];
+          for (let d = day; d < day + 21; d++) {
+            const q = list[idxForDay(d, list)];
+            const { by, ...pr } = q;
+            sched.push({ day: d, source: q.by === 'admin' ? 'admin' : q.day === d ? 'fixed' : 'auto', prompt: pr, M: maxWordsOf(q), sealed: sealedOf(q).size });
+          }
+          return json({ today: day, schedule: sched }, 200, cors);
+        }
+        // お題を予約する(dry: true なら、保存せずに、検査と計算だけ)。今日より先の日だけ
+        if (url.pathname === '/api/v1/admin/prompt' && req.method === 'POST') {
+          const b = await req.json().catch(() => null);
+          if (!b) return json({ error: 'json' }, 400, cors);
+          const d = Math.floor(+b.day);
+          if (!(d > day && d <= day + 365)) return json({ error: 'day' }, 400, cors);
+          const r = makePrompt(b);
+          if (r.err) return json({ error: r.err }, 400, cors);
+          if (b.dry) return json({ ok: true, dry: true, prompt: r.p, ...r.info }, 200, cors);
+          const x = r.p;
+          await env.DB.prepare('INSERT OR REPLACE INTO day_prompts (day, word, link, disp, note, rule, ban, seal, created) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+            .bind(d, x.word, x.link, x.disp || null, x.note || null, x.rule || null, x.ban || null, x.seal || null, Date.now()).run();
+          return json({ ok: true, day: d, prompt: x, ...r.info }, 200, cors);
+        }
+        if (url.pathname === '/api/v1/admin/prompt/delete' && req.method === 'POST') {
+          const b = await req.json().catch(() => null);
+          const d = Math.floor(+(b && b.day));
+          if (!(d > day)) return json({ error: 'day' }, 400, cors);
+          const r = await env.DB.prepare('DELETE FROM day_prompts WHERE day = ?').bind(d).run();
+          return json({ ok: true, changes: r.meta.changes }, 200, cors);
         }
         if (url.pathname === '/api/v1/admin/delete' && req.method === 'POST') {
           const b = await req.json();

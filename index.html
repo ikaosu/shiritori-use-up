@@ -237,6 +237,12 @@ select { min-height: 40px; font: inherit; font-size: 14px; color: var(--ink); ba
 .admtop b { font: 800 16px/1.4 var(--serif); color: var(--accent); } .admtop .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 700; }
 .admtop .sc { font: 800 16px/1.4 var(--serif); } .admtop small { grid-column: 1 / -1; color: var(--sub); font-size: 11px; }
 .admchain { margin: 6px 0 8px; font: 600 15px/1.7 var(--serif); word-break: break-all; }
+.admtabs { display: flex; gap: 8px; margin: 4px 0 10px; } .admtabs .btn { flex: 1; min-height: 40px; } .admtabs .btn.on { background: var(--ink); color: #fff6e6; }
+.admform { display: block; }
+.admform label { display: block; margin: 12px 0 4px; font: 700 13px/1.4 system-ui, sans-serif; color: var(--sub); }
+.admform input, .admform select, .admform textarea { width: 100%; box-sizing: border-box; min-height: 42px; padding: 6px 10px; font: 16px/1.5 system-ui, sans-serif; color: var(--ink); background: #fff; border: 1px solid var(--edge); border-radius: 10px; }
+.admform .row2 { display: flex; gap: 8px; margin-top: 12px; } .admform .row2 .btn { flex: 1; }
+.admbtns { display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap; } .admok { margin: 10px 0 0; font-weight: 700; color: #2d7a52; } .admng { margin: 10px 0 0; font-weight: 700; color: var(--accent); }
 .admdel { min-height: 36px; padding: 0 12px; font-size: 13px; color: var(--accent); }
 
 i.theory { display: inline-block; margin-left: 4px; padding: 0 8px; font-style: normal; font: 800 11px/20px system-ui, sans-serif; letter-spacing: .06em; color: #3b2a05;
@@ -403,8 +409,22 @@ body { padding-top: env(safe-area-inset-top); }
   }
 
   // ---- データ読み込み ----
-  const [promptsRes, wordsRes] = await Promise.all([fetch('data/prompts.json'), fetch('data/words.txt')]);
+  const API_DEFAULT = 'https://shiritori-api.kamatyo199851.workers.dev';
+  const apiQ = new URLSearchParams(location.search).get('api');
+  const API = (apiQ && /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(apiQ)) ? apiQ : API_DEFAULT; // ?api= は手元の試験用
+  // 管理者画面から予約したお題。読めなければ(通信できない・遅いとき)、予約なしで遊べる
+  const reserved = async () => {
+    try {
+      const ctl = new AbortController(), tm = setTimeout(() => ctl.abort(), 3000);
+      const r = await fetch(`${API}/api/v1/prompts`, { signal: ctl.signal }); clearTimeout(tm);
+      const j = r.ok ? await r.json() : {};
+      return (j.prompts || []).filter(o => o && typeof o.word === 'string' && typeof o.link === 'string' && Number.isInteger(o.day)).sort((a, b) => a.day - b.day);
+    } catch { return []; }
+  };
+  const [promptsRes, wordsRes, reservedList] = await Promise.all([fetch('data/prompts.json'), fetch('data/words.txt'), reserved()]);
   const PROMPTS = await promptsRes.json();
+  // 予約のある日は、固定のお題より予約を優先(固定の方は day = -1 にして、乱数の対象にもしない)。サーバーの loadPrompts と同じ重ね方
+  { const days = new Set(reservedList.map(o => o.day)); PROMPTS.forEach(p => { if (p.day !== undefined && days.has(p.day)) p.day = -1; }); reservedList.forEach(o => PROMPTS.push(o)); }
   const lines = (await wordsRes.text()).split('\n');
   const dict = new Map();           // 読み -> 種別
   const sA = [], loA = [], hiA = [], eA = [], tA = [], cA = [], dA = []; // 続けられる手の探索用(dA: 濁音・半濁音を含む)
@@ -453,9 +473,6 @@ body { padding-top: env(safe-area-inset-top); }
   const maxTag = () => ({ a: 0, b: 2, c: 3 }[settings.dict]);
 
   // ---- ランキング ----
-  const API_DEFAULT = 'https://shiritori-api.kamatyo199851.workers.dev';
-  const apiQ = new URLSearchParams(location.search).get('api');
-  const API = (apiQ && /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(apiQ)) ? apiQ : API_DEFAULT; // ?api= は手元の試験用
   const rand = () => (crypto.randomUUID ? crypto.randomUUID() : [...crypto.getRandomValues(new Uint8Array(16))].map(b => b.toString(16).padStart(2, '0')).join(''));
   let DEVICE = store.get('su2:device');
   if (!DEVICE) { DEVICE = rand(); store.set('su2:device', DEVICE); }
@@ -771,7 +788,7 @@ body { padding-top: env(safe-area-inset-top); }
     const th = Math.round(tw * 1.18), fs = Math.round(tw * 0.6);
     const rule = big && p.rule ? `<p class="prule">${esc(p.rule)}</p>` : '';
     return `<section class="prompt${big || long ? ' stack' : ''}">${lab ? `<p class="lab">${lab}</p>` : ''}
-      <p class="w" aria-label="${p.disp || p.word}" style="--tw:${tw}px;--th:${th}px;--tf:${fs}px">${chars.map(c => `<span>${c}</span>`).join('')}</p>
+      <p class="w" aria-label="${esc(p.disp || p.word)}" style="--tw:${tw}px;--th:${th}px;--tf:${fs}px">${chars.map(c => `<span>${c}</span>`).join('')}</p>
       <p class="go"><span class="t">最初は「</span><b>${p.link}</b><span class="t">」から始めます</span></p>${rule}${big && p.note ? `<p class="pnote">${esc(p.note)}</p>` : ''}</section>`;
   }
 
@@ -897,7 +914,72 @@ body { padding-top: env(safe-area-inset-top); }
   const dayLabel = d => { const t = new Date(d * 86400e3); return `${t.getUTCMonth() + 1}/${t.getUTCDate()}`; };
   const hhmm = ms => { const t = new Date(ms + 9 * 3600e3); return `${String(t.getUTCHours()).padStart(2, '0')}:${String(t.getUTCMinutes()).padStart(2, '0')}`; };
   const dispOf = w => (PROMPTS.find(x => x.word === w) || {}).disp || w;
-  let admDay = null;
+  let admDay = null, admTab = 'rec';
+  const admHead = () => `<div class="gbar"><a class="btn ghost gb" href="./">← タイトル</a><span class="gmode">管理者</span><button class="btn ghost gb" id="admOut" type="button">ログアウト</button></div>
+    <div class="admtabs"><button type="button" class="btn ghost ${admTab === 'rec' ? 'on' : ''}" data-tab="rec">記録</button><button type="button" class="btn ghost ${admTab === 'prompt' ? 'on' : ''}" data-tab="prompt">お題</button></div>`;
+  const admBind = () => {
+    $('#admOut').onclick = () => { try { sessionStorage.removeItem('su2:adm'); } catch { /* なし */ } renderAdmin(); };
+    document.querySelectorAll('[data-tab]').forEach(b => { b.onclick = () => { admTab = b.dataset.tab; renderAdmin(); }; });
+  };
+  const WD = '日月火水木金土';
+  const dayISO = d => new Date(d * 86400e3).toISOString().slice(0, 10);
+  const SRC = { admin: '予約', fixed: '固定', auto: '自動' };
+  const PERR = { word: '読みは、ひらがなで2〜20文字にしてください。', wo: '「を」は使えません。', seal: '封じる文字は、ひらがなにしてください。', link: '最初の文字が決められません(「ん」は使えません)。', size: '封じる文字が多すぎます。', day: '日付は、明日から1年先までにしてください。', json: '送れませんでした。' };
+
+  // お題の予定と、予約(日ごとのお題を決める)
+  async function renderAdmPrompts(form, msg) {
+    app.innerHTML = `<div class="adm">${admHead()}<p class="note">読み込み中…</p></div>`;
+    admBind();
+    const { today, schedule } = await admApi('/schedule');
+    const f = form || { day: today + 1, word: '', disp: '', note: '', ban: '', seal: '', link: '' };
+    const rows = schedule.map(x => {
+      const p = x.prompt, t = new Date(x.day * 86400e3), future = x.day > today;
+      return `<div class="admrow"><div class="admtop"><b>${dayLabel(x.day)}(${WD[t.getUTCDay()]})</b><span class="nm">${esc(p.disp || p.word)}</span><span class="sc">${SRC[x.source]}</span>
+        <small>最初「${esc(p.link)}」 ・ 封じる${x.sealed}字 ・ 最大${x.M}語${p.rule ? ' ・ ' + esc(p.rule) : ''}</small></div>
+        ${future ? `<div class="admbtns"><button type="button" class="btn ghost admdel admedit" data-day="${x.day}">この日を変える</button>${x.source === 'admin' ? `<button type="button" class="btn ghost admdel admunres" data-day="${x.day}">予約を解除</button>` : ''}</div>` : '<small>今日のお題は、変えられません。</small>'}</div>`;
+    }).join('');
+    app.innerHTML = `<div class="adm">${admHead()}
+      <h3>これからのお題</h3>${rows}
+      <h3>お題を決める</h3>
+      <form id="pf" class="admform" autocomplete="off">
+        <label for="pfDate">日付(今日より先)</label><input id="pfDate" type="date" min="${dayISO(today + 1)}" value="${dayISO(f.day)}">
+        <label for="pfWord">お題の読み(ひらがな。ここから封じる文字が決まります)</label><input id="pfWord" type="text" lang="ja" placeholder="いろはうた" value="${esc(f.word)}">
+        <label for="pfDisp">表示(漢字など。空なら、読みのまま)</label><input id="pfDisp" type="text" lang="ja" placeholder="いろは歌" value="${esc(f.disp)}">
+        <label for="pfNote">ひとこと(タイトルに出ます)</label><textarea id="pfNote" rows="2" maxlength="120">${esc(f.note)}</textarea>
+        <label for="pfBan">制約</label><select id="pfBan"><option value="">なし</option><option value="daku" ${f.ban === 'daku' ? 'selected' : ''}>濁音・半濁音を含む言葉は使えない</option></select>
+        <label for="pfSeal">お題のほかに、最初から封じる文字(任意)</label><input id="pfSeal" type="text" lang="ja" placeholder="例: あいうえお" value="${esc(f.seal)}">
+        <label for="pfLink">最初の文字(空なら、読みの最後の文字)</label><input id="pfLink" type="text" lang="ja" maxlength="1" value="${esc(f.link)}">
+        <div class="row2"><button class="btn ghost" id="pfCheck" type="button">確かめる</button><button class="btn" id="pfSave" type="submit">この日に決める</button></div>
+        <div id="pfOut" role="status">${msg || ''}</div>
+        <p class="note">使い切れるか・最大語数に届くかは、ここでは確かめません(手元の tools/solve.py で調べてから決めると安心です)。</p>
+      </form></div>`;
+    admBind();
+    const val = () => ({ day: Math.round(Date.parse($('#pfDate').value + 'T00:00:00Z') / 86400e3), word: $('#pfWord').value, disp: $('#pfDisp').value, note: $('#pfNote').value, ban: $('#pfBan').value, seal: $('#pfSeal').value, link: $('#pfLink').value });
+    const out = (ok, t) => { $('#pfOut').innerHTML = `<p class="${ok ? 'admok' : 'admng'}">${esc(t)}</p>`; };
+    const send = async dry => {
+      try { return await admApi('/prompt', { method: 'POST', body: JSON.stringify({ ...val(), dry }) }); }
+      catch (e) { if (e.status === 403) { renderAdmin(); throw e; } out(false, PERR[e.message] || '送れませんでした。'); throw e; }
+    };
+    const info = r => `最初の文字「${r.link}」 ・ 封じる${r.sealed}字 ・ 残り${r.left}字 ・ 最大${r.M}語 ・ タイル${r.tiles}枚`;
+    $('#pfCheck').onclick = async () => { try { out(true, info(await send(true))); } catch { /* 表示済み */ } };
+    $('#pf').onsubmit = async e => {
+      e.preventDefault();
+      try { const r = await send(false); renderAdmPrompts(null, `<p class="admok">${esc(dayLabel(r.day))} のお題を「${esc(r.prompt.disp || r.prompt.word)}」にしました。${esc(info(r))}</p>`); } catch { /* 表示済み */ }
+    };
+    document.querySelectorAll('.admedit').forEach(b => {
+      b.onclick = () => {
+        const x = schedule.find(y => y.day === +b.dataset.day), p = x.prompt;
+        renderAdmPrompts({ day: x.day, word: p.word, disp: p.disp || '', note: p.note || '', ban: p.ban || '', seal: p.seal || '', link: p.link }, '').then(() => $('#pf').scrollIntoView());
+      };
+    });
+    document.querySelectorAll('.admunres').forEach(b => {
+      b.onclick = async () => {
+        if (!confirm(`${dayLabel(+b.dataset.day)} の予約を解除しますか？(その日は、元のお題に戻ります)`)) return;
+        try { await admApi('/prompt/delete', { method: 'POST', body: JSON.stringify({ day: +b.dataset.day }) }); } catch { /* 読み直して確かめる */ }
+        renderAdmPrompts();
+      };
+    });
+  }
 
   async function renderAdmin() {
     if (!admToken()) {
@@ -909,6 +991,7 @@ body { padding-top: env(safe-area-inset-top); }
     }
     app.innerHTML = '<div class="adm"><p class="note">読み込み中…</p></div>';
     try {
+      if (admTab === 'prompt') return await renderAdmPrompts();
       const { today, days } = await admApi('/days');
       const dayList = [...new Set([today, ...days.map(x => x.day)])].sort((a, b) => b - a);
       if (admDay === null || !dayList.includes(admDay)) admDay = today;
@@ -926,12 +1009,12 @@ body { padding-top: env(safe-area-inset-top); }
             <button type="button" class="btn ghost admdel" data-day="${r.day}" data-prompt="${esc(r.prompt)}" data-mode="${r.mode}" data-device="${esc(r.device)}">この記録を消す</button></div>`;
         }).join('');
       }).join('') || '<p class="note">この日の記録は、まだありません。</p>';
-      app.innerHTML = `<div class="adm"><div class="gbar"><a class="btn ghost gb" href="./">← タイトル</a><span class="gmode">管理者</span><button class="btn ghost gb" id="admOut" type="button">ログアウト</button></div>
+      app.innerHTML = `<div class="adm">${admHead()}
         <div class="admday"><button class="btn ghost" id="admPrev" type="button" ${dayList.indexOf(admDay) >= dayList.length - 1 ? 'disabled' : ''}>←</button>
           <b>${dayLabel(admDay)}${admDay === today ? '(今日)' : ''}</b>
           <button class="btn ghost" id="admNext" type="button" ${dayList.indexOf(admDay) <= 0 ? 'disabled' : ''}>→</button></div>
         ${body}</div>`;
-      $('#admOut').onclick = () => { try { sessionStorage.removeItem('su2:adm'); } catch { /* なし */ } renderAdmin(); };
+      admBind();
       $('#admPrev').onclick = () => { admDay = dayList[dayList.indexOf(admDay) + 1]; renderAdmin(); };
       $('#admNext').onclick = () => { admDay = dayList[dayList.indexOf(admDay) - 1]; renderAdmin(); };
       document.querySelectorAll('.admdel').forEach(b => {
