@@ -14,6 +14,11 @@ const NORM = {};
 [...'ぱぴぷぺぽ'].forEach((c, i) => { NORM[c] = 'はひふへほ'[i]; });
 [...'ぁぃぅぇぉっゃゅょゎゔ'].forEach((c, i) => { NORM[c] = 'あいうえおつやゆよわう'[i]; });
 const DAKU_RE = /[がぎぐげござじずぜぞだぢづでどばびぶべぼぱぴぷぺぽゔ]/;
+// お題の制約(ban): その言葉を使えない条件と、画面に出す一言
+const BANS = {
+  daku: { re: DAKU_RE, rule: '濁音・半濁音を含む言葉は使えません' },
+  kadaku: { re: /[かきくけこ]/, rule: 'か行は「が・ぎ・ぐ・げ・ご」しか使えません' },
+};
 const VOWEL = {};
 [['あかさたなはまやらわ', 'あ'], ['いきしちにひみり', 'い'], ['うくすつぬふむゆる', 'う'], ['えけせてねへめれ', 'え'], ['おこそとのほもよろ', 'お']]
   .forEach(([row, v]) => [...row].forEach(c => { VOWEL[c] = v; }));
@@ -119,8 +124,8 @@ function makePrompt(b) {
   const p = { word, link };
   const disp = clean(b.disp, 20); if (disp && disp !== word) p.disp = disp;
   const note = clean(b.note, 120); if (note) p.note = note;
-  if (b.ban === 'daku') p.ban = 'daku';
-  const rule = clean(b.rule, 40) || (p.ban ? '濁音・半濁音を含む言葉は使えません' : '');
+  if (typeof b.ban === 'string' && Object.hasOwn(BANS, b.ban)) p.ban = b.ban;
+  const rule = clean(b.rule, 40) || (p.ban ? BANS[p.ban].rule : '');
   if (rule) p.rule = rule;
   if (seal) p.seal = seal;
   return { p, info: { link, sealed: sealed.size, left, M: Math.floor(left / 2), tiles: [...(p.disp || word)].length } };
@@ -141,7 +146,7 @@ async function validate(env, p, mode, chain, out) {
     const a = analyze(r);
     if (a.err) return `rule:${i}`;
     if (a.start !== link) return `link:${i}`;
-    if (p.ban === 'daku' && DAKU_RE.test(r)) return `ban:${i}`; // 濁音・半濁音を禁止するお題
+    if (BANS[p.ban] && BANS[p.ban].re.test(r)) return `ban:${i}`; // 使えない言葉の制約があるお題
     const seen = new Set();
     for (const c of a.cons) {
       if (seen.has(c) || used.has(c)) return `used:${i}`;

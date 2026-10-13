@@ -429,8 +429,10 @@ body { padding-top: env(safe-area-inset-top); }
   { const days = new Set(reservedList.map(o => o.day)); PROMPTS.forEach(p => { if (p.day !== undefined && days.has(p.day)) p.day = -1; }); reservedList.forEach(o => PROMPTS.push(o)); }
   const lines = (await wordsRes.text()).split('\n');
   const dict = new Map();           // 読み -> 種別
-  const sA = [], loA = [], hiA = [], eA = [], tA = [], cA = [], dA = []; // 続けられる手の探索用(dA: 濁音・半濁音を含む)
-  const DAKU_RE = /[がぎぐげござじずぜぞだぢづでどばびぶべぼぱぴぷぺぽゔ]/;
+  const sA = [], loA = [], hiA = [], eA = [], tA = [], cA = [], dA = [], kA = []; // 続けられる手の探索用(dA: 濁音・半濁音を含む、kA: か行の清音を含む)
+  const DAKU_RE = /[がぎぐげござじずぜぞだぢづでどばびぶべぼぱぴぷぺぽゔ]/, KA_RE = /[かきくけこ]/;
+  // お題の制約(ban): 使えない言葉の条件(配列は、その言葉が条件にあたるか)と、断るときの一言
+  const BAN_MSG = { daku: 'このお題では、濁音・半濁音を含む言葉は使えません。', kadaku: 'このお題では、か行は「が・ぎ・ぐ・げ・ご」しか使えません。' };
   for (const line of lines) {
     const k = line.indexOf('\t'); if (k < 0) continue;
     const r = line.slice(0, k), t = +line.slice(k + 1);
@@ -438,7 +440,7 @@ body { padding-top: env(safe-area-inset-top); }
     const a = analyze(r); if (a.err) continue;
     let lo = 0, hi = 0;
     for (const c of a.cons) { const [l, h] = bit(IDX[c]); lo |= l; hi |= h; }
-    dA.push(DAKU_RE.test(r) ? 1 : 0);
+    dA.push(DAKU_RE.test(r) ? 1 : 0); kA.push(KA_RE.test(r) ? 1 : 0);
     sA.push(IDX[a.start]); loA.push(lo); hiA.push(hi); eA.push(IDX[a.end]); tA.push(t); cA.push(a.cons.length);
   }
 
@@ -668,9 +670,9 @@ body { padding-top: env(safe-area-inset-top); }
   function hasMove() {
     let remLo = 0, remHi = 0;
     st.used.forEach((v, i) => { if (v === 0) { const [l, h] = bit(i); remLo |= l; remHi |= h; } });
-    const link = IDX[st.link], lim = maxTag(), remAll = left();
+    const link = IDX[st.link], lim = maxTag(), remAll = left(), ban = PROMPTS[st.pi].ban;
     for (let i = 0; i < sA.length; i++) {
-      if (sA[i] !== link || tA[i] > lim || (banDaku() && dA[i])) continue;
+      if (sA[i] !== link || tA[i] > lim || (ban === 'daku' && dA[i]) || (ban === 'kadaku' && kA[i])) continue;
       if ((loA[i] & ~remLo) || (hiA[i] & ~remHi)) continue;
       return true;
     }
@@ -690,7 +692,8 @@ body { padding-top: env(safe-area-inset-top); }
     const a = analyze(r);
     if (a.err) return fail(MSG[a.err]);
     if (a.start !== st.link) return fail(`「${st.link}」から始めてください。`);
-    if (banDaku() && DAKU_RE.test(r)) return fail('このお題では、濁音・半濁音を含む言葉は使えません。');
+    const ban = PROMPTS[st.pi].ban;
+    if ((ban === 'daku' && DAKU_RE.test(r)) || (ban === 'kadaku' && KA_RE.test(r))) return fail(BAN_MSG[ban]);
     const seen = new Set();
     for (const c of a.cons) {
       if (seen.has(c)) return fail(`「${c}」が2回出てきます。同じ言葉の中でも、同じ文字は1回までです。`);
@@ -950,7 +953,7 @@ body { padding-top: env(safe-area-inset-top); }
         <label for="pfWord">お題の読み(ひらがな。ここから封じる文字が決まります)</label><input id="pfWord" type="text" lang="ja" placeholder="いろはうた" value="${esc(f.word)}">
         <label for="pfDisp">表示(漢字など。空なら、読みのまま)</label><input id="pfDisp" type="text" lang="ja" placeholder="いろは歌" value="${esc(f.disp)}">
         <label for="pfNote">ひとこと(タイトルに出ます)</label><textarea id="pfNote" rows="2" maxlength="120">${esc(f.note)}</textarea>
-        <label for="pfBan">制約</label><select id="pfBan"><option value="">なし</option><option value="daku" ${f.ban === 'daku' ? 'selected' : ''}>濁音・半濁音を含む言葉は使えない</option></select>
+        <label for="pfBan">制約</label><select id="pfBan"><option value="">なし</option><option value="daku" ${f.ban === 'daku' ? 'selected' : ''}>濁音・半濁音を含む言葉は使えない</option><option value="kadaku" ${f.ban === 'kadaku' ? 'selected' : ''}>か行は「が・ぎ・ぐ・げ・ご」しか使えない</option></select>
         <label for="pfSeal">お題のほかに、最初から封じる文字(任意)</label><input id="pfSeal" type="text" lang="ja" placeholder="例: あいうえお" value="${esc(f.seal)}">
         <label for="pfLink">最初の文字(空なら、読みの最後の文字)</label><input id="pfLink" type="text" lang="ja" maxlength="1" value="${esc(f.link)}">
         <div class="row2"><button class="btn ghost" id="pfCheck" type="button">確かめる</button><button class="btn" id="pfSave" type="submit">この日に決める</button></div>
